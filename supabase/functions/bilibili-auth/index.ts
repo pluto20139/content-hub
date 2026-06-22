@@ -1,8 +1,9 @@
 import { corsHeaders } from "../_shared/cors.ts";
-import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "http://127.0.0.1:54321";
+// Use runtime-provided service_role key (auto-injected by Supabase cloud / config.toml for local)
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3ODIxMDA2NTIsImV4cCI6MTgxMzYzNjY1Mn0.dbIA-vSKTZV-bahocnrb06fYqXvhITPW8-PGDUNv7hw";
 
 const BILIBILI_QRCODE_URL =
   "https://passport.bilibili.com/x/passport-login/web/qrcode/generate";
@@ -21,6 +22,27 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+async function postgrestUpsert(
+  table: string,
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      apikey: SERVICE_ROLE_KEY,
+      Prefer: "resolution=merge-duplicates",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    return { ok: false, error: `PostgREST error ${res.status}: ${await res.text()}` };
+  }
+  return { ok: true };
 }
 
 // ── QR code generation ────────────────────────────────
@@ -87,38 +109,17 @@ async function handlePoll(qrcodeKey: string): Promise<Response> {
       });
     }
 
-    // Write cookie to platform_configs via Supabase
-    try {
-      const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const now = new Date().toISOString();
 
-      // Use service_role to bypass RLS and directly UPSERT
-      const { error } = await supabase
-        .from("platform_configs")
-        .upsert(
-          {
-            platform: "bilibili",
-            config_key: "cookie",
-            config_value: cookies,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "platform,config_key" },
-        );
+    // Write cookie to platform_configs via PostgREST
+    const { ok: cookieOk } = await postgrestUpsert("platform_configs", {
+      platform: "bilibili",
+      config_key: "cookie",
+      config_value: cookies,
+      updated_at: now,
+    });
 
-      if (error) throw error;
-
-      // Also update the cookie_status to valid
-      await supabase
-        .from("platform_configs")
-        .upsert(
-          {
-            platform: "bilibili",
-            config_key: "cookie_status",
-            config_value: "valid",
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "platform,config_key" },
-        );
-    } catch {
+    if (!cookieOk) {
       return json({
         success: false,
         error: {
@@ -127,6 +128,14 @@ async function handlePoll(qrcodeKey: string): Promise<Response> {
         },
       }, 500);
     }
+
+    // Update cookie_status to valid
+    await postgrestUpsert("platform_configs", {
+      platform: "bilibili",
+      config_key: "cookie_status",
+      config_value: "valid",
+      updated_at: now,
+    });
 
     return json({ success: true, data: { status: "success" } });
   }

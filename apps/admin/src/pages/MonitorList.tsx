@@ -334,7 +334,7 @@ export default function MonitorList() {
         {showQr && (
           <div className="mt-4 text-center">
             {qrUrl && (
-              <img src={qrUrl} alt="B站二维码" className="mx-auto mb-2 w-48 h-48" />
+              <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}`} alt="B站二维码" className="mx-auto mb-2 w-48 h-48" />
             )}
             <p className="text-sm text-gray-500">{pollStatus}</p>
             <button

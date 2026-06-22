@@ -29,7 +29,24 @@ const RSSHUB_API_KEY = Deno.env.get("RSSHUB_API_KEY") ?? "";
 
 // ── B站 ──────────────────────────────────────────────
 
-const BILIBILI_SPACE_RE = /space\.bilibili\.com\/(\d+)/;
+const BILIBILI_SPACE_RE = /bilibili\.com\/space\/(\d+)/;
+const BILIBILI_SHORT_RE = /b23\.tv\//;
+const BILIBILI_DOMAIN_RE = /bilibili\.com/;
+
+/** Resolve b23.tv short links by following the redirect. */
+async function resolveB23ShortLink(shortUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch(shortUrl, {
+      method: "HEAD",
+      redirect: "manual",
+      headers: { "User-Agent": "ContentHub/1.0" },
+    });
+    const location = res.headers.get("location");
+    return location ?? null;
+  } catch {
+    return null;
+  }
+}
 
 async function parseBilibili(mid: string): Promise<ParseResponse> {
   let displayName = `B站_${mid.slice(0, 8)}`;
@@ -223,19 +240,35 @@ async function handleRequest(req: Request): Promise<Response> {
     );
   }
 
-  let result: ParseResponse;
+  let result: ParseResponse | undefined;
 
   try {
-    if (BILIBILI_SPACE_RE.test(url)) {
-      result = await parseBilibili(BILIBILI_SPACE_RE.exec(url)![1]);
+    // Resolve b23.tv short links first
+    let resolvedUrl = url;
+    if (BILIBILI_SHORT_RE.test(url)) {
+      const redirect = await resolveB23ShortLink(url);
+      if (!redirect) {
+        result = { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法解析 B站短链接，请使用完整链接" } };
+      } else {
+        resolvedUrl = redirect;
+      }
+    }
+
+    if (result) {
+      // result already set above (error case)
+    } else if (BILIBILI_SPACE_RE.test(resolvedUrl)) {
+      result = await parseBilibili(BILIBILI_SPACE_RE.exec(resolvedUrl)![1]);
+    } else if (BILIBILI_DOMAIN_RE.test(resolvedUrl) && !BILIBILI_SPACE_RE.test(resolvedUrl)) {
+      // It's a bilibili.com link but not a space page (e.g. video page from short link)
+      result = { success: false, error: { code: "UNKNOWN_PLATFORM", message: "请粘贴 B站 个人空间链接（space.bilibili.com/数字ID），而非视频或文章链接" } };
     } else if (
-      YOUTUBE_HANDLE_RE.test(url) ||
-      YOUTUBE_CHANNEL_RE.test(url) ||
-      YOUTUBE_C_RE.test(url)
+      YOUTUBE_HANDLE_RE.test(resolvedUrl) ||
+      YOUTUBE_CHANNEL_RE.test(resolvedUrl) ||
+      YOUTUBE_C_RE.test(resolvedUrl)
     ) {
-      result = await parseYoutube(url);
-    } else if (ZHIHU_PEOPLE_RE.test(url) || ZHIHU_COLUMN_RE.test(url) || ZHUANLAN_ARTICLE_RE.test(url)) {
-      result = await parseZhihu(url);
+      result = await parseYoutube(resolvedUrl);
+    } else if (ZHIHU_PEOPLE_RE.test(resolvedUrl) || ZHIHU_COLUMN_RE.test(resolvedUrl) || ZHUANLAN_ARTICLE_RE.test(resolvedUrl)) {
+      result = await parseZhihu(resolvedUrl);
     } else {
       result = { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法识别该平台，目前支持 B站 / YouTube / 知乎" } };
     }

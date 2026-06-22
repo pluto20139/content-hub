@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: configuration_system
+title: 多平台内容中枢配置系统规范
+scope: []
+source_files:
+    - PROJECT_CONTEXT.md
+    - .env.example
+    - supabase/config.toml
+    - .github/workflows/cron-fetch.yml
+    - packages/shared/src/constants/platforms.ts
+depends_on: []
+related_to: []

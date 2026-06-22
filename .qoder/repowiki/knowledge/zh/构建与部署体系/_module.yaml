@@ -1,0 +1,14 @@
+schema_version: 1
+module_path: build_system
+title: 构建与部署体系
+scope: []
+source_files:
+    - PROJECT_CONTEXT.md
+    - .github/workflows/cron-fetch.yml
+    - pnpm-workspace.yaml
+    - package.json
+    - supabase/config.toml
+    - supabase/migrations/
+    - supabase/functions/
+depends_on: []
+related_to: []

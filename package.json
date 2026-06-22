@@ -1,0 +1,11 @@
+{
+  "name": "content-hub",
+  "private": true,
+  "version": "0.0.1",
+  "description": "多平台内容中枢",
+  "scripts": {},
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "pnpm@11.8.0"
+}

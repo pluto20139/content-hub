@@ -1,5 +1,5 @@
-import { supabase } from "./supabase";
-import type { RawContent, MonitorStatus } from "../adapters/types";
+import { supabase } from "./supabase.js";
+import type { RawContent, MonitorStatus } from "../adapters/types.js";
 
 const UPSERT_COLUMNS =
   "platform,native_id,content_type,title,cover_url,original_url,published_at,monitor_id";

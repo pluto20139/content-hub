@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabase } from "./supabase.js";
 
 const LOCK_ID = 1;
 const STALE_MINUTES = 15;
@@ -14,7 +14,7 @@ export async function acquireLock(runId: string): Promise<boolean> {
     .from("cron_locks")
     .update({ locked_at: new Date().toISOString(), locked_by: runId })
     .eq("id", LOCK_ID)
-    .or(`locked_at.is.null,locked_at.lt.${staleThreshold.toISOString().replaceAll(":", "%3A")}`)
+    .or(`locked_at.is.null,locked_at.lt.${staleThreshold.toISOString()}`)
     .select();
 
   if (error) {

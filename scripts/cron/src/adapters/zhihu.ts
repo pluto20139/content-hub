@@ -1,4 +1,4 @@
-import type { PlatformAdapter, Monitor, RawContent, PlatformResult } from "./types";
+import type { PlatformAdapter, Monitor, RawContent, PlatformResult } from "./types.js";
 
 const RSSHUB_URL = process.env.RSSHUB_URL ?? "";
 const RSSHUB_API_KEY = process.env.RSSHUB_API_KEY ?? "";

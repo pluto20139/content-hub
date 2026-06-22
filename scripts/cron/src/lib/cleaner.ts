@@ -1,4 +1,4 @@
-import type { RawContent } from "../adapters/types";
+import type { RawContent } from "../adapters/types.js";
 
 const MAX_TITLE_LENGTH = 300;
 const MAX_CONTENT_SIZE_BYTES = 3 * 1024;

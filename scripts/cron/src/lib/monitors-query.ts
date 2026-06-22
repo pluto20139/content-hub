@@ -1,5 +1,5 @@
-import { supabase } from "./supabase";
-import type { Monitor } from "../adapters/types";
+import { supabase } from "./supabase.js";
+import type { Monitor } from "../adapters/types.js";
 
 const YOUTUBE_THROTTLE_HOURS = 4;
 
@@ -19,7 +19,7 @@ export async function queryActiveMonitors(): Promise<{
     .select("*")
     .eq("is_active", true)
     .eq("platform", "youtube")
-    .or(`last_sync_at.is.null,last_sync_at.lt.${fourHoursAgo.replaceAll(":", "%3A")}`);
+    .or(`last_sync_at.is.null,last_sync_at.lt.${fourHoursAgo}`);
 
   if (ytError) {
     console.error("Failed to query YouTube monitors:", ytError.message);

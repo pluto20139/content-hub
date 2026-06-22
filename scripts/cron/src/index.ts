@@ -1,19 +1,19 @@
-import { acquireLock, releaseLock } from "./lib/lock";
-import { queryActiveMonitors } from "./lib/monitors-query";
-import { withPlatformThrottle } from "./lib/throttle";
-import { cleanContent, filterNewContent } from "./lib/cleaner";
+import { acquireLock, releaseLock } from "./lib/lock.js";
+import { queryActiveMonitors } from "./lib/monitors-query.js";
+import { withPlatformThrottle } from "./lib/throttle.js";
+import { cleanContent, filterNewContent } from "./lib/cleaner.js";
 import {
   upsertContent,
   updateMonitorStatus,
   updateDisplayName,
   verifyMonitorActive,
   loadBilibiliCookie,
-} from "./lib/content-writer";
-import { sendAlert } from "./lib/alert";
-import { BilibiliAdapter } from "./adapters/bilibili";
-import { YoutubeAdapter } from "./adapters/youtube";
-import { ZhihuAdapter } from "./adapters/zhihu";
-import type { Monitor, CronResult, MonitorStatus, PlatformAdapter, PlatformResult } from "./adapters/types";
+} from "./lib/content-writer.js";
+import { sendAlert } from "./lib/alert.js";
+import { BilibiliAdapter } from "./adapters/bilibili.js";
+import { YoutubeAdapter } from "./adapters/youtube.js";
+import { ZhihuAdapter } from "./adapters/zhihu.js";
+import type { Monitor, CronResult, MonitorStatus, PlatformAdapter, PlatformResult } from "./adapters/types.js";
 
 const RUN_ID = `run-${process.env.GITHUB_RUN_ID ?? Date.now()}`;
 

@@ -1,4 +1,4 @@
-import type { Monitor } from "../adapters/types";
+import type { Monitor } from "../adapters/types.js";
 
 const WEBHOOK_URL = process.env.WECOM_WEBHOOK_URL ?? "";
 

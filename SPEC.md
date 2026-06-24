@@ -2,7 +2,10 @@
 
 > 本文档是 Content Hub 的工程技术规格书，基于 PRD v1.4 和 PROJECT_CONTEXT.md 编写。
 > 所有技术决策已锁定，本文档作为开发的唯一实现依据。
-> 最后更新：2026-06-21（v1.6 Review Round 6 修订版）
+> 最后更新：2026-06-22（v1.6 Review Round 6 修订版）
+
+> **MVP 平台范围**：B站 + YouTube。知乎延后至 Phase 2（详见 Taskplan.md 附录 A）。
+> 数据库 CHECK 约束、类型定义保留 `'zhihu'` 枚举值为 Phase 2 预留，无需修改；但涉及知乎的适配器实现（5.6 ZhihuAdapter）、H5 Tab（9.3）、parse-url 知乎分支（2.3）在 MVP 阶段不实施。
 
 ---
 
@@ -1036,7 +1039,7 @@ interface PlatformAdapter {
 |---|---|---|---|---|
 | BilibiliAdapter | `x/space/wbi/arc/search` + `x/space/article/list` | Cookie (SESSDATA) | 同平台 ≥1.5s | 需要 WBI 签名；同时抓取视频 + 专栏文章（content_type=article） |
 | YoutubeAdapter | `playlistItems.list` (uploads playlist) | API Key | 无 | 需先获取 uploads playlist ID；**平台级短路** |
-| ZhihuAdapter | RSSHub HTTP 接口 | API Key | 同平台 ≥1.5s | 依赖 RSSHub 实例可用性；**平台级短路** |
+| ZhihuAdapter `[Phase 2]` | RSSHub HTTP 接口（MVP 失效，Phase 2 待定：直连 API v4 + Cookie / 本地脚本 / 国内云） | API Key / Cookie | 同平台 ≥1.5s | 依赖 RSSHub 实例可用性；**平台级短路**。MVP 阶段不实施，详见 Taskplan.md 附录 A |
 
 **B站 WBI 签名流程**：
 
@@ -1186,25 +1189,29 @@ CronRunner.run()
   │       last_sync_at IS NULL（从未抓取）
   │       OR last_sync_at < now() - INTERVAL '4 hours'
   │     被过滤掉的 YouTube monitor 不更新任何字段，不视为失败
-  │     （B站和知乎组不受此限制，每轮全量执行）
+  │     （B站组不受此限制，每轮全量执行；知乎组 Phase 2 启用时加入）
   │
-  │     具体查询：
+  │     具体查询（MVP 阶段，仅 B站 + YouTube）：
   │       -- YouTube 组（降频过滤）
   │       GET /rest/v1/monitors?is_active=eq.true&platform=eq.youtube
   │         &or=(last_sync_at.is.null,last_sync_at.lt.{four_hours_ago_iso})
   │         &select=*
   │
-  │       -- B站 + 知乎组（全量）
-  │       GET /rest/v1/monitors?is_active=eq.true&platform=in.(bilibili,zhihu)&select=*
+  │       -- B站组（全量）
+  │       GET /rest/v1/monitors?is_active=eq.true&platform=eq.bilibili&select=*
+  │
+  │       （Phase 2 启用知乎后，B站 + 知乎合并查询：
+  │        platform=in.(bilibili,zhihu)）
   │
   ├── 3. 按 platform 分组
   │     ├── bilibili 组 → BilibiliAdapter（串行，间隔 1.5s）
   │     ├── youtube 组  → YoutubeAdapter（串行）
-  │     └── zhihu 组    → ZhihuAdapter（串行，间隔 1.5s）
-  │     （三组使用 Promise.allSettled 并行执行，每组内部 try-catch 隔离）
+  │     └── zhihu 组    → ZhihuAdapter（串行，间隔 1.5s）`[Phase 2]`
+  │     （MVP 仅前两组；Phase 2 启用知乎后为三组。
+  │      使用 Promise.allSettled 并行执行，每组内部 try-catch 隔离）
   │
   │     平台组级别：某平台组整体异常不影响其他平台组
-  │     （如 YouTube 配额用尽不影响 B站和知乎组）
+  │     （如 YouTube 配额用尽不影响 B站组）
   │
   ├── 4. 每条 monitor 的抓取流程（错误隔离边界）：
   │     ├── try {
@@ -1359,11 +1366,13 @@ CronRunner.run()
 
 ### 9.3 H5 平台筛选 Tab
 
-H5 信息流顶部的平台筛选 Tab 列表（MVP 阶段，不含抖音）：
+H5 信息流顶部的平台筛选 Tab 列表（MVP 阶段，不含抖音、知乎）：
 
 ```
-全部 | B站 | 知乎 | YouTube
+全部 | B站 | YouTube
 ```
+
+> **知乎 Tab** 延后至 Phase 2（详见 Taskplan.md 附录 A）。
 
 Tab 配置定义在 `apps/h5/src/constants/tabs.ts`，每个 Tab 对应一个 platform filter 参数。
 
@@ -1393,7 +1402,7 @@ Admin SPA 监控列表中，根据 `last_content_at` 展示活跃度提示：
 |---|---|---|
 | `last_content_at` 距今 ≤ 30 天 | 正常展示 | 活跃状态 |
 | `last_content_at` 距今 > 30 天 | 灰色提示"⚪ 该博主已超过 {N} 天未更新" | 可能停更，N 为动态天数 |
-| `last_content_at` 距今 > 90 天 | 红色提示"⚪ 该博主已超过 {N} 天未更新" | 大概率停更，建议检查或移除 |
+| `last_content_at` 距今 > 90 天 | 红色提示"⚪ 该博主已超过 {N} 天未更新，建议关闭监控或移除" | 大概率停更，建议清理 |
 
 ### 9.6 Admin SPA 状态筛选
 

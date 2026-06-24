@@ -29,7 +29,7 @@
 | `@supabase/supabase-js` | 前端与 Supabase 交互 | 同时用于前端 SPA 和 Cron 脚本 |
 | `@supabase/supabase` (Deno) | Edge Functions 内使用 | Deno 模块导入 |
 | `youtubei.js` 或 googleapis | YouTube Data API v3 | Cron 脚本内调用 |
-| RSSHub | 知乎内容中转 | 独立部署，HTTP 调用 |
+| RSSHub `[Phase 2]` | 知乎内容中转 | MVP 不使用。知乎延后至 Phase 2，届时评估是否用 RSSHub 或直连 API（详见 Taskplan.md 附录 A） |
 
 ### 1.3 环境变量清单
 
@@ -38,10 +38,10 @@
 | `SUPABASE_URL` | Vercel / GitHub Secrets | Supabase 项目 URL |
 | `SUPABASE_ANON_KEY` | Vercel | 前端公开使用，受 RLS 保护 |
 | `SUPABASE_SERVICE_ROLE_KEY` | GitHub Secrets **仅** | 绕过 RLS，仅 Cron 和 Edge Function 使用 |
-| `YOUTUBE_API_KEY` | GitHub Secrets | YouTube Data API v3 密钥 |
+| `YOUTUBE_API_KEY` | GitHub Secrets + Supabase Secrets | YouTube Data API v3 密钥（双配置，SPEC 5.3 规则 5） |
 | `BILIBILI_COOKIE` | `platform_configs` 表 + Supabase Vault 加密 | B站 Cookie，扫码登录后存入数据库（非环境变量） |
-| `RSSHUB_URL` | GitHub Secrets | RSSHub 实例地址 |
-| `RSSHUB_API_KEY` | GitHub Secrets | RSSHub 访问鉴权密钥 |
+| `RSSHUB_URL` `[Phase 2]` | GitHub Secrets（Phase 2 启用时配置） | RSSHub 实例地址。MVP 不使用 |
+| `RSSHUB_API_KEY` `[Phase 2]` | GitHub Secrets（Phase 2 启用时配置） | RSSHub 访问鉴权密钥。MVP 不使用 |
 | `WECOM_WEBHOOK_URL` | GitHub Secrets（可选） | 企业微信告警 Webhook |
 
 ---

@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
 import type { PlatformAdapter, Monitor, RawContent, PlatformResult } from "./types.js";
+import { withPlatformThrottle } from "../lib/throttle.js";
 
 const BILIBILI_PROXY_URL = process.env.BILIBILI_PROXY_URL ?? "";
+const CRON_API_KEY = process.env.CRON_API_KEY ?? "";
 const BILIBILI_NAV_URL = "https://api.bilibili.com/x/web-interface/nav";
 const BILIBILI_SPACE_API = "https://api.bilibili.com/x/space/wbi/arc/search";
 const BILIBILI_ARTICLE_API = "https://api.bilibili.com/x/space/article/list";
@@ -10,6 +13,7 @@ const BILIBILI_ACC_API = "https://api.bilibili.com/x/space/acc/info";
 async function proxyFetch(url: string, headers: Record<string, string>): Promise<Response> {
   if (BILIBILI_PROXY_URL) {
     const proxyHeaders: Record<string, string> = { "Content-Type": "application/json" };
+    if (CRON_API_KEY) proxyHeaders["x-cron-api-key"] = CRON_API_KEY;
     // Pass service_role key for auth
     const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
     if (svcKey) proxyHeaders["Authorization"] = `Bearer ${svcKey}`;
@@ -41,15 +45,8 @@ interface WbiCache {
   expiresAt: number;
 }
 
-async function md5(input: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(input);
-  const hashBuffer = await crypto.subtle.digest("MD5", data).catch(() => {
-    // MD5 not available in some runtimes; use a simple crypto hash fallback
-    return crypto.subtle.digest("SHA-256", data);
-  });
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+function md5(input: string): string {
+  return createHash("md5").update(input).digest("hex");
 }
 
 let wbiCache: WbiCache | null = null;
@@ -179,23 +176,34 @@ export class BilibiliAdapter implements PlatformAdapter {
     if (monitors.length === 0) return { skipped: false, monitors: [], results: [] };
 
     // Probe first monitor for platform-level errors
+    let probeContents: RawContent[] | null = null;
+    let probeError: string | null = null;
     try {
-      await this.fetchLatest(monitors[0]);
+      probeContents = await this.fetchLatest(monitors[0]);
     } catch (err: any) {
       if (err.isPlatformLevel) {
         return { skipped: true, reason: "B站 Cookie 已失效，跳过整组", monitors, results: [] };
       }
+      probeError = err.message;
     }
 
-    // Non-fatal, process all monitors one by one
+    // Build results starting with the probe monitor (success or error)
     const results: PlatformResult["results"] = [];
-    for (const monitor of monitors) {
-      try {
-        const contents = await this.fetchLatest(monitor);
-        results.push({ monitor, contents });
-      } catch (err: any) {
-        results.push({ monitor, contents: [], error: err.message });
-      }
+    if (probeError) {
+      results.push({ monitor: monitors[0], contents: [], error: probeError });
+    } else {
+      results.push({ monitor: monitors[0], contents: probeContents! });
+    }
+
+    for (let i = 1; i < monitors.length; i++) {
+      await withPlatformThrottle("bilibili", async () => {
+        try {
+          const contents = await this.fetchLatest(monitors[i]);
+          results.push({ monitor: monitors[i], contents });
+        } catch (err: any) {
+          results.push({ monitor: monitors[i], contents: [], error: err.message });
+        }
+      });
     }
 
     return { skipped: false, monitors, results };
@@ -203,7 +211,7 @@ export class BilibiliAdapter implements PlatformAdapter {
 
   private async loadCookie(): Promise<string | null> {
     // Cookie is loaded from environment variable set by Cron's content-writer
-    // which fetches it from platform_configs table
+    // which fetches it from Vault via get_bilibili_cookie RPC
     return process.env.BILIBILI_COOKIE ?? null;
   }
 }

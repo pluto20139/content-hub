@@ -2,8 +2,7 @@ import { corsHeaders } from "../_shared/cors.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "http://127.0.0.1:54321";
 // Use runtime-provided service_role key (auto-injected by Supabase cloud / config.toml for local)
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UiLCJpYXQiOjE3ODIxMDA2NTIsImV4cCI6MTgxMzYzNjY1Mn0.dbIA-vSKTZV-bahocnrb06fYqXvhITPW8-PGDUNv7hw";
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 const BILIBILI_QRCODE_URL =
   "https://passport.bilibili.com/x/passport-login/web/qrcode/generate";
@@ -43,6 +42,19 @@ async function postgrestUpsert(
     return { ok: false, error: `PostgREST error ${res.status}: ${await res.text()}` };
   }
   return { ok: true };
+}
+
+async function vaultUpsertCookie(cookieValue: string): Promise<boolean> {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/upsert_bilibili_cookie`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      apikey: SERVICE_ROLE_KEY,
+    },
+    body: JSON.stringify({ new_secret: cookieValue }),
+  });
+  return res.ok;
 }
 
 // ── QR code generation ────────────────────────────────
@@ -93,6 +105,10 @@ async function handlePoll(qrcodeKey: string): Promise<Response> {
     return json({ success: true, data: { status: "expired" } });
   }
 
+  if (data.code === 86039) {
+    return json({ success: true, data: { status: "waiting" } });
+  }
+
   if (data.code === 86101) {
     return json({ success: true, data: { status: "waiting" } });
   }
@@ -111,13 +127,8 @@ async function handlePoll(qrcodeKey: string): Promise<Response> {
 
     const now = new Date().toISOString();
 
-    // Write cookie to platform_configs via PostgREST
-    const { ok: cookieOk } = await postgrestUpsert("platform_configs", {
-      platform: "bilibili",
-      config_key: "cookie",
-      config_value: cookies,
-      updated_at: now,
-    });
+    // Write cookie to vault
+    const cookieOk = await vaultUpsertCookie(cookies);
 
     if (!cookieOk) {
       return json({
@@ -129,13 +140,23 @@ async function handlePoll(qrcodeKey: string): Promise<Response> {
       }, 500);
     }
 
-    // Update cookie_status to valid
-    await postgrestUpsert("platform_configs", {
+    // Update cookie_status to valid (non-critical, warn on failure)
+    const { ok: statusOk } = await postgrestUpsert("platform_configs", {
       platform: "bilibili",
       config_key: "cookie_status",
       config_value: "valid",
       updated_at: now,
     });
+    // Write cookie_meta (timestamp only, non-sensitive) for Admin display
+    const { ok: metaOk } = await postgrestUpsert("platform_configs", {
+      platform: "bilibili",
+      config_key: "cookie_meta",
+      config_value: now,
+      updated_at: now,
+    });
+    if (!statusOk || !metaOk) {
+      console.warn("Failed to update cookie_status/meta, but cookie was saved successfully");
+    }
 
     return json({ success: true, data: { status: "success" } });
   }
@@ -158,14 +179,14 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   if (req.method !== "POST") {
-    return json({ success: false, error: { code: "INVALID_URL", message: "仅支持 POST 请求" } }, 405);
+    return json({ success: false, error: { code: "INTERNAL_ERROR", message: "仅支持 POST 请求" } }, 405);
   }
 
   let body: AuthRequest;
   try {
     body = await req.json();
   } catch {
-    return json({ success: false, error: { code: "INVALID_URL", message: "请求体格式无效" } }, 400);
+    return json({ success: false, error: { code: "INTERNAL_ERROR", message: "请求体格式无效" } }, 400);
   }
 
   if (body.action === "qrcode") {
@@ -174,12 +195,12 @@ async function handleRequest(req: Request): Promise<Response> {
 
   if (body.action === "poll") {
     if (!body.qrcode_key) {
-      return json({ success: false, error: { code: "INVALID_URL", message: "缺少 qrcode_key 参数" } }, 400);
+      return json({ success: false, error: { code: "INTERNAL_ERROR", message: "缺少 qrcode_key 参数" } }, 400);
     }
     return handlePoll(body.qrcode_key);
   }
 
-  return json({ success: false, error: { code: "INVALID_URL", message: "无效的 action，仅支持 qrcode / poll" } }, 400);
+  return json({ success: false, error: { code: "INTERNAL_ERROR", message: "无效的 action，仅支持 qrcode / poll" } }, 400);
 }
 
 Deno.serve(handleRequest);

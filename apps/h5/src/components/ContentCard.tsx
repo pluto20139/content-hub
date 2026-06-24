@@ -14,7 +14,6 @@ interface Content {
 function getPlaceholderCover(platform: string): string {
   const colors: Record<string, string> = {
     bilibili: "#FB7299",
-    zhihu: "#0066FF",
     youtube: "#FF0000",
   };
   return `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" fill="${colors[platform] ?? "#999"}"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="20">${PLATFORMS[platform]?.name ?? ""}</text></svg>`;
@@ -28,7 +27,7 @@ function handleClick(content: Content): void {
 
   // WeChat / Alipay → skip Deep Link, show fallback directly
   if (env === "wechat" || env === "alipay") {
-    void navigator.clipboard.writeText(originalUrl);
+    navigator.clipboard.writeText(originalUrl).catch(() => {});
     showFallbackModal(originalUrl, "当前环境不支持直接打开 App，请复制链接到系统浏览器");
     return;
   }
@@ -36,7 +35,7 @@ function handleClick(content: Content): void {
   // System browser → try Deep Link
   const deepLink = getDeepLink(content.platform, content.content_type, content.native_id);
 
-  void navigator.clipboard.writeText(originalUrl);
+  navigator.clipboard.writeText(originalUrl).catch(() => {});
 
   if (deepLink) {
     let timeoutId: ReturnType<typeof setTimeout>;
@@ -44,6 +43,8 @@ function handleClick(content: Content): void {
     const cleanup = (): void => {
       clearTimeout(timeoutId);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onVisibilityChange);
+      window.removeEventListener("blur", onBlur);
     };
 
     const onVisibilityChange = (): void => {
@@ -52,7 +53,13 @@ function handleClick(content: Content): void {
       }
     };
 
+    const onBlur = (): void => {
+      cleanup();
+    };
+
     document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onVisibilityChange);
+    window.addEventListener("blur", onBlur);
 
     timeoutId = setTimeout(() => {
       cleanup();
@@ -61,7 +68,7 @@ function handleClick(content: Content): void {
 
     window.location.href = deepLink;
   } else {
-    // No Deep Link schema (e.g., zhihu)
+    // No Deep Link schema
     window.open(originalUrl, "_blank");
   }
 }

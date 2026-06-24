@@ -9,13 +9,13 @@ const lastCallMap = new Map<string, number>();
 
 /**
  * Wrap a platform-specific async function, enforcing a minimum interval
- * between same-platform calls. B站 and 知乎 require ≥ 1500ms; YouTube skips.
+ * between same-platform calls. B站 requires ≥ 1500ms; YouTube skips.
  */
 export async function withPlatformThrottle<T>(
   platform: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  if (platform !== "bilibili" && platform !== "zhihu") {
+  if (platform !== "bilibili") {
     return fn();
   }
 

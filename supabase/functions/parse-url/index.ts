@@ -24,12 +24,10 @@ interface ParseError {
 type ParseResponse = ParseSuccess | ParseError;
 
 const YOUTUBE_API_KEY = Deno.env.get("YOUTUBE_API_KEY") ?? "";
-const RSSHUB_URL = Deno.env.get("RSSHUB_URL") ?? "";
-const RSSHUB_API_KEY = Deno.env.get("RSSHUB_API_KEY") ?? "";
 
 // ── B站 ──────────────────────────────────────────────
 
-const BILIBILI_SPACE_RE = /bilibili\.com\/space\/(\d+)/;
+const BILIBILI_SPACE_RE = /space\.bilibili\.com\/(\d+)/;
 const BILIBILI_SHORT_RE = /b23\.tv\//;
 const BILIBILI_DOMAIN_RE = /bilibili\.com/;
 
@@ -143,59 +141,6 @@ async function parseYoutube(url: string): Promise<ParseResponse> {
   }
 }
 
-// ── 知乎 ──────────────────────────────────────────────
-
-const ZHIHU_PEOPLE_RE = /zhihu\.com\/people\/([^/?]+)/;
-const ZHIHU_COLUMN_RE = /zhihu\.com\/column\/([^/?]+)/;
-const ZHUANLAN_ARTICLE_RE = /zhuanlan\.zhihu\.com\/p\//;
-
-async function parseZhihu(url: string): Promise<ParseResponse> {
-  if (ZHUANLAN_ARTICLE_RE.test(url)) {
-    return {
-      success: false,
-      error: { code: "UNKNOWN_PLATFORM", message: "请粘贴博主主页链接，而非文章链接" },
-    };
-  }
-
-  let match: RegExpExecArray | null;
-  let nativeId: string;
-  let isColumn = false;
-
-  if ((match = ZHIHU_PEOPLE_RE.exec(url))) {
-    nativeId = match[1];
-  } else if ((match = ZHIHU_COLUMN_RE.exec(url))) {
-    nativeId = match[1];
-    isColumn = true;
-  } else {
-    return { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法识别该知乎链接格式" } };
-  }
-
-  let displayName = `知乎_${nativeId.slice(0, 8)}`;
-  if (RSSHUB_URL && RSSHUB_API_KEY) {
-    try {
-      const path = isColumn
-        ? `zhihu/column/${nativeId}`
-        : `zhihu/people/${nativeId}/articles`;
-      const res = await fetch(`${RSSHUB_URL}/${path}`, {
-        headers: { Authorization: `Bearer ${RSSHUB_API_KEY}` },
-      });
-      if (res.ok) {
-        const json = await res.json();
-        // RSSHub returns feed info, try to extract author/name
-        const name = json?.feed?.title ?? json?.data?.name ?? "";
-        if (name) displayName = name;
-      }
-    } catch {
-      // fall through to fallback name
-    }
-  }
-
-  return {
-    success: true,
-    data: { platform: "zhihu", native_id: nativeId, display_name: displayName },
-  };
-}
-
 // ── URL validation ────────────────────────────────────
 
 function isValidUrl(str: string): boolean {
@@ -217,7 +162,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
   if (req.method !== "POST") {
     return new Response(
-      JSON.stringify({ success: false, error: { code: "INVALID_URL", message: "仅支持 POST 请求" } }),
+      JSON.stringify({ success: false, error: { code: "INTERNAL_ERROR", message: "仅支持 POST 请求" } }),
       { status: 405, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
@@ -227,7 +172,7 @@ async function handleRequest(req: Request): Promise<Response> {
     body = await req.json();
   } catch {
     return new Response(
-      JSON.stringify({ success: false, error: { code: "INVALID_URL", message: "请求体格式无效" } }),
+      JSON.stringify({ success: false, error: { code: "INTERNAL_ERROR", message: "请求体格式无效" } }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
@@ -267,10 +212,8 @@ async function handleRequest(req: Request): Promise<Response> {
       YOUTUBE_C_RE.test(resolvedUrl)
     ) {
       result = await parseYoutube(resolvedUrl);
-    } else if (ZHIHU_PEOPLE_RE.test(resolvedUrl) || ZHIHU_COLUMN_RE.test(resolvedUrl) || ZHUANLAN_ARTICLE_RE.test(resolvedUrl)) {
-      result = await parseZhihu(resolvedUrl);
     } else {
-      result = { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法识别该平台，目前支持 B站 / YouTube / 知乎" } };
+      result = { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法识别该平台，目前支持 B站 / YouTube" } };
     }
   } catch (err) {
     console.error("parse-url internal error:", err);
@@ -279,7 +222,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
   const status = result.success ? 200
     : result.error.code === "UNKNOWN_PLATFORM" || result.error.code === "INVALID_URL" ? 400
-    : result.error.code === "YOUTUBE_API_ERROR" || result.error.code === "RSSHUB_ERROR" ? 502
+    : result.error.code === "YOUTUBE_API_ERROR" ? 502
     : 500;
 
   return new Response(JSON.stringify(result), {

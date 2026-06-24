@@ -28,6 +28,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
-          RSSHUB_URL: ${{ secrets.RSSHUB_URL }}
-          RSSHUB_API_KEY: ${{ secrets.RSSHUB_API_KEY }}
           WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
+          BILIBILI_PROXY_URL: ${{ secrets.BILIBILI_PROXY_URL }}
+          CRON_API_KEY: ${{ secrets.CRON_API_KEY }}

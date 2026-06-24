@@ -4,36 +4,46 @@ import type { RawContent, MonitorStatus } from "../adapters/types.js";
 const UPSERT_COLUMNS =
   "platform,native_id,content_type,title,cover_url,original_url,published_at,monitor_id";
 
+const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+
 /**
  * UPSERT a single content item into the contents table.
- * Uses resolution=merge-duplicates + limited columns to prevent
+ * Uses native PostgREST fetch with ?columns= to prevent
  * re-animating soft-deleted records (is_display remains false).
  */
 export async function upsertContent(
   content: RawContent,
   monitorId: number,
 ): Promise<boolean> {
-  const { error } = await supabase
-    .from("contents")
-    .upsert(
-      {
-        platform: content.platform,
-        native_id: content.native_id,
-        content_type: content.content_type,
-        title: content.title,
-        cover_url: content.cover_url,
-        original_url: content.original_url,
-        published_at: content.published_at,
-        monitor_id: monitorId,
-      },
-      {
-        onConflict: "platform,native_id",
-      },
-    )
-    .select();
+  const body = {
+    platform: content.platform,
+    native_id: content.native_id,
+    content_type: content.content_type,
+    title: content.title,
+    cover_url: content.cover_url,
+    original_url: content.original_url,
+    published_at: content.published_at,
+    monitor_id: monitorId,
+  };
 
-  if (error) {
-    console.error(`UPSERT content ${content.native_id} failed:`, error.message);
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/contents?columns=${encodeURIComponent(UPSERT_COLUMNS)}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        apikey: SERVICE_ROLE_KEY,
+        Prefer: "resolution=merge-duplicates",
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error(`UPSERT content ${content.native_id} failed:`, text);
     return false;
   }
   return true;
@@ -109,16 +119,23 @@ export async function verifyMonitorActive(
 }
 
 /**
- * Load B站 cookie from platform_configs for adapter use.
+ * Load B站 cookie from vault for adapter use.
  */
 export async function loadBilibiliCookie(): Promise<string | null> {
-  const { data, error } = await supabase
-    .from("platform_configs")
-    .select("config_value")
-    .eq("platform", "bilibili")
-    .eq("config_key", "cookie")
-    .maybeSingle();
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/rpc/get_bilibili_cookie`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        apikey: SERVICE_ROLE_KEY,
+      },
+    },
+  );
 
-  if (error || !data) return null;
-  return data.config_value;
+  if (!res.ok) return null;
+  const text = await res.text();
+  // RPC returns a text result wrapped in quotes
+  return text ? JSON.parse(text) : null;
 }

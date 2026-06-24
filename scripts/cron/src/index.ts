@@ -12,7 +12,6 @@ import {
 import { sendAlert } from "./lib/alert.js";
 import { BilibiliAdapter } from "./adapters/bilibili.js";
 import { YoutubeAdapter } from "./adapters/youtube.js";
-import { ZhihuAdapter } from "./adapters/zhihu.js";
 import type { Monitor, CronResult, MonitorStatus, PlatformAdapter, PlatformResult } from "./adapters/types.js";
 
 const RUN_ID = `run-${process.env.GITHUB_RUN_ID ?? Date.now()}`;
@@ -23,8 +22,6 @@ function createAdapter(platform: string): PlatformAdapter | null {
       return new BilibiliAdapter();
     case "youtube":
       return new YoutubeAdapter();
-    case "zhihu":
-      return new ZhihuAdapter();
     default:
       return null;
   }
@@ -73,10 +70,17 @@ async function processPlatformGroup(
     if (adapter.platform === "bilibili") {
       try {
         const { supabase } = await import("./lib/supabase");
+        const nowIso = new Date().toISOString();
         await supabase
           .from("platform_configs")
           .upsert(
-            { platform: "bilibili", config_key: "cookie_status", config_value: "expired", updated_at: new Date().toISOString() },
+            { platform: "bilibili", config_key: "cookie_status", config_value: "expired", updated_at: nowIso },
+            { onConflict: "platform,config_key" },
+          );
+        await supabase
+          .from("platform_configs")
+          .upsert(
+            { platform: "bilibili", config_key: "cookie_meta", config_value: nowIso, updated_at: nowIso },
             { onConflict: "platform,config_key" },
           );
       } catch {
@@ -84,21 +88,6 @@ async function processPlatformGroup(
       }
     }
     return { successCount, failCount, newContentCount };
-  }
-
-  // B站 success → update cookie_status to valid
-  if (adapter.platform === "bilibili") {
-    try {
-      const { supabase } = await import("./lib/supabase");
-      await supabase
-        .from("platform_configs")
-        .upsert(
-          { platform: "bilibili", config_key: "cookie_status", config_value: "valid", updated_at: new Date().toISOString() },
-          { onConflict: "platform,config_key" },
-        );
-    } catch {
-      // non-critical
-    }
   }
 
   for (const { monitor, contents, error } of result.results) {
@@ -127,12 +116,17 @@ async function processPlatformGroup(
 
         // Status write-back
         const { status, failCount } = computeStatus(monitor.status, monitor.fail_count, true);
+
+        // Use the newest published_at across all new contents
+        const timestamps = newContents.map((c) => new Date(c.published_at).getTime());
+        const newestTime = timestamps.length > 0 ? Math.max(...timestamps) : undefined;
+
         await updateMonitorStatus(monitor.id, {
           status,
           failCount,
           lastSync: true,
           newContent: inserted > 0,
-          lastContentAt: inserted > 0 ? newContents[newContents.length - 1]?.published_at : undefined,
+          lastContentAt: newestTime ? new Date(newestTime).toISOString() : undefined,
         });
 
         // Name refresh (name_auto=true only)
@@ -169,6 +163,28 @@ async function processPlatformGroup(
     });
   }
 
+  // B站 success → update cookie_status to valid (only if at least 1 monitor succeeded)
+  if (adapter.platform === "bilibili" && successCount > 0) {
+    try {
+      const { supabase } = await import("./lib/supabase");
+      const nowIso = new Date().toISOString();
+      await supabase
+        .from("platform_configs")
+        .upsert(
+          { platform: "bilibili", config_key: "cookie_status", config_value: "valid", updated_at: nowIso },
+          { onConflict: "platform,config_key" },
+        );
+      await supabase
+        .from("platform_configs")
+        .upsert(
+          { platform: "bilibili", config_key: "cookie_meta", config_value: nowIso, updated_at: nowIso },
+          { onConflict: "platform,config_key" },
+        );
+    } catch {
+      // non-critical
+    }
+  }
+
   return { successCount, failCount, newContentCount };
 }
 
@@ -201,12 +217,6 @@ async function run(): Promise<CronResult> {
     const bilibiliMonitors = others.filter((m) => m.platform === "bilibili");
     if (bilibiliMonitors.length > 0) {
       platformGroups.push({ monitors: bilibiliMonitors, adapter: createAdapter("bilibili") });
-    }
-
-    // 知乎 group
-    const zhihuMonitors = others.filter((m) => m.platform === "zhihu");
-    if (zhihuMonitors.length > 0) {
-      platformGroups.push({ monitors: zhihuMonitors, adapter: createAdapter("zhihu") });
     }
 
     // YouTube group

@@ -5,7 +5,7 @@ const YOUTUBE_THROTTLE_HOURS = 4;
 
 /**
  * Query active monitors, applying YouTube 4-hour throttle.
- * Returns { youtube: Monitor[], others: Monitor[] } where 'others' = bilibili + zhihu.
+ * Returns { youtube: Monitor[], others: Monitor[] } where 'others' = bilibili.
  */
 export async function queryActiveMonitors(): Promise<{
   youtube: Monitor[];
@@ -26,12 +26,12 @@ export async function queryActiveMonitors(): Promise<{
     throw ytError;
   }
 
-  // B站 + 知乎: full set every run
+  // B站: full set every run
   const { data: others, error: otherError } = await supabase
     .from("monitors")
     .select("*")
     .eq("is_active", true)
-    .in("platform", ["bilibili", "zhihu"]);
+    .eq("platform", "bilibili");
 
   if (otherError) {
     console.error("Failed to query other monitors:", otherError.message);

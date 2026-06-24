@@ -1,4 +1,4 @@
-export type Platform = "bilibili" | "youtube" | "zhihu";
+export type Platform = "bilibili" | "youtube";
 export type MonitorStatus = "normal" | "cookie_expired" | "rate_limited";
 export type ContentType = "video" | "article" | "question" | "answer" | "post";
 

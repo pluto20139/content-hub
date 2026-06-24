@@ -73,21 +73,32 @@ export class YoutubeAdapter implements PlatformAdapter {
   async fetchAll(monitors: Monitor[]): Promise<PlatformResult> {
     if (monitors.length === 0) return { skipped: false, monitors: [], results: [] };
 
+    // Probe first monitor for platform-level errors
+    let probeContents: RawContent[] | null = null;
+    let probeError: string | null = null;
     try {
-      await this.fetchLatest(monitors[0]);
+      probeContents = await this.fetchLatest(monitors[0]);
     } catch (err: any) {
       if (err.isPlatformLevel) {
         return { skipped: true, reason: "YouTube API 配额已用尽，跳过整组", monitors, results: [] };
       }
+      probeError = err.message;
     }
 
+    // Build results starting with the probe monitor (success or error)
     const results: PlatformResult["results"] = [];
-    for (const monitor of monitors) {
+    if (probeError) {
+      results.push({ monitor: monitors[0], contents: [], error: probeError });
+    } else {
+      results.push({ monitor: monitors[0], contents: probeContents! });
+    }
+
+    for (let i = 1; i < monitors.length; i++) {
       try {
-        const contents = await this.fetchLatest(monitor);
-        results.push({ monitor, contents });
+        const contents = await this.fetchLatest(monitors[i]);
+        results.push({ monitor: monitors[i], contents });
       } catch (err: any) {
-        results.push({ monitor, contents: [], error: err.message });
+        results.push({ monitor: monitors[i], contents: [], error: err.message });
       }
     }
 

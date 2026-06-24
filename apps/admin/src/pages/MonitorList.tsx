@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { PLATFORMS, getDaysSinceActivity } from "@content-hub/shared";
+import QRCode from "qrcode";
 
 interface Monitor {
   id: number;
@@ -41,22 +42,24 @@ function formatSyncTime(ts: string | null): string {
   return `${y}-${m}-${day} ${h}:${min}`;
 }
 
-function freshnessWarning(lastContentAt: string): { text: string; red: boolean } | null {
+function freshnessWarning(lastContentAt: string | null): { text: string; red: boolean } | null {
+  if (!lastContentAt) return null;
   const days = getDaysSinceActivity(new Date(lastContentAt));
   if (days <= 30) return null;
   const red = days > 90;
-  return { text: `该博主已超过 ${days} 天未更新`, red };
+  return { text: `该博主已超过 ${days} 天未更新${red ? "，建议关闭监控或移除" : ""}`, red };
 }
 
 export default function MonitorList() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [platformFilter, setPlatformFilter] = useState("all");
   const [urlInput, setUrlInput] = useState("");
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState("");
   const [showQr, setShowQr] = useState(false);
-  const [qrUrl, setQrUrl] = useState("");
+  const [qrDataUrl, setQrDataUrl] = useState("");
   const [pollStatus, setPollStatus] = useState("");
   const [cookieUpdated, setCookieUpdated] = useState<string | null>(null);
   const [cookieStatus, setCookieStatus] = useState<string | null>(null);
@@ -78,7 +81,7 @@ export default function MonitorList() {
       .select("config_key,config_value,updated_at")
       .eq("platform", "bilibili");
 
-    const cookie = (data ?? []).find((r: any) => r.config_key === "cookie");
+    const cookie = (data ?? []).find((r: any) => r.config_key === "cookie_meta");
     const status = (data ?? []).find((r: any) => r.config_key === "cookie_status");
 
     if (cookie) {
@@ -96,6 +99,7 @@ export default function MonitorList() {
 
   // Filter monitors
   const filtered = monitors.filter((m) => {
+    if (platformFilter !== "all" && m.platform !== platformFilter) return false;
     if (statusFilter === "all") return true;
     if (statusFilter === "inactive") return !m.is_active;
     if (statusFilter === "cookie_expired+rate_limited")
@@ -168,27 +172,43 @@ export default function MonitorList() {
   };
 
   const toggleActive = async (id: number, current: boolean): Promise<void> => {
-    await supabase.from("monitors").update({ is_active: !current }).eq("id", id);
+    const { error } = await supabase.from("monitors").update({ is_active: !current }).eq("id", id);
+    if (error) {
+      alert("操作失败：" + error.message);
+      return;
+    }
     fetchMonitors();
   };
 
   const resetMonitor = async (id: number): Promise<void> => {
-    await supabase.from("monitors").update({ status: "normal", fail_count: 0 }).eq("id", id);
+    const { error } = await supabase.from("monitors").update({ status: "normal", fail_count: 0 }).eq("id", id);
+    if (error) {
+      alert("重置失败：" + error.message);
+      return;
+    }
     fetchMonitors();
   };
 
   const deleteMonitor = async (id: number): Promise<void> => {
-    await supabase.from("monitors").delete().eq("id", id);
+    const { error } = await supabase.from("monitors").delete().eq("id", id);
+    if (error) {
+      alert("删除失败：" + error.message);
+      return;
+    }
     setDeletingId(null);
     fetchMonitors();
   };
 
   const renameMonitor = async (id: number, newName: string): Promise<void> => {
     if (!newName.trim()) return;
-    await supabase
+    const { error } = await supabase
       .from("monitors")
       .update({ display_name: newName.trim(), name_auto: false })
       .eq("id", id);
+    if (error) {
+      alert("重命名失败：" + error.message);
+      return;
+    }
     fetchMonitors();
   };
 
@@ -220,8 +240,12 @@ export default function MonitorList() {
         return;
       }
 
-      setQrUrl(json.data.qr_url);
       setPollStatus("请使用B站 App 扫码");
+
+      // Generate QR code locally
+      QRCode.toDataURL(json.data.qr_url, { width: 200, margin: 2 })
+        .then(setQrDataUrl)
+        .catch(() => {});
 
       // Start polling
       const qrcodeKey = json.data.qrcode_key;
@@ -255,7 +279,7 @@ export default function MonitorList() {
             setPollStatus("登录成功！");
             setTimeout(() => {
               setShowQr(false);
-              setQrUrl("");
+              setQrDataUrl("");
               fetchCookieInfo();
             }, 1500);
           } else if (pollJson.data?.status === "expired") {
@@ -289,7 +313,7 @@ export default function MonitorList() {
             type="url"
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
-            placeholder="粘贴 B站/YouTube/知乎 博主主页链接..."
+            placeholder="粘贴 B站/YouTube 博主主页链接..."
             className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             onKeyDown={(e) => e.key === "Enter" && addMonitor()}
           />
@@ -333,8 +357,8 @@ export default function MonitorList() {
         {/* QR modal */}
         {showQr && (
           <div className="mt-4 text-center">
-            {qrUrl && (
-              <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}`} alt="B站二维码" className="mx-auto mb-2 w-48 h-48" />
+            {qrDataUrl && (
+              <img src={qrDataUrl} alt="B站二维码" className="mx-auto mb-2 w-48 h-48" />
             )}
             <p className="text-sm text-gray-500">{pollStatus}</p>
             <button
@@ -348,7 +372,7 @@ export default function MonitorList() {
       </div>
 
       {/* Status filter */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-2 mb-2">
         {STATUS_FILTERS.map((f) => (
           <button
             key={f.key}
@@ -360,6 +384,23 @@ export default function MonitorList() {
             }`}
           >
             {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Platform filter */}
+      <div className="flex gap-2 mb-4">
+        {["all", "bilibili", "youtube"].map((p) => (
+          <button
+            key={p}
+            onClick={() => setPlatformFilter(p)}
+            className={`px-3 py-1 rounded-full text-xs font-medium ${
+              platformFilter === p
+                ? "bg-gray-700 text-white"
+                : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-50"
+            }`}
+          >
+            {p === "all" ? "全部平台" : (PLATFORMS[p]?.name ?? p)}
           </button>
         ))}
       </div>

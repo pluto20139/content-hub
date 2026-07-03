@@ -2,36 +2,10 @@ import { createHash } from "node:crypto";
 import type { PlatformAdapter, Monitor, RawContent, PlatformResult } from "./types.js";
 import { withPlatformThrottle } from "../lib/throttle.js";
 
-const BILIBILI_PROXY_URL = process.env.BILIBILI_PROXY_URL ?? "";
-const CRON_API_KEY = process.env.CRON_API_KEY ?? "";
 const BILIBILI_NAV_URL = "https://api.bilibili.com/x/web-interface/nav";
 const BILIBILI_SPACE_API = "https://api.bilibili.com/x/space/wbi/arc/search";
 const BILIBILI_ARTICLE_API = "https://api.bilibili.com/x/space/article/list";
 const BILIBILI_ACC_API = "https://api.bilibili.com/x/space/acc/info";
-
-/** Fetch via cloud proxy if configured, otherwise direct. */
-async function proxyFetch(url: string, headers: Record<string, string>): Promise<Response> {
-  if (BILIBILI_PROXY_URL) {
-    const proxyHeaders: Record<string, string> = { "Content-Type": "application/json" };
-    if (CRON_API_KEY) proxyHeaders["x-cron-api-key"] = CRON_API_KEY;
-    // Pass service_role key for auth
-    const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-    if (svcKey) proxyHeaders["Authorization"] = `Bearer ${svcKey}`;
-    const res = await fetch(BILIBILI_PROXY_URL, {
-      method: "POST",
-      headers: proxyHeaders,
-      body: JSON.stringify({ url, headers }),
-    });
-    return {
-      ok: res.ok,
-      status: res.status,
-      headers: res.headers,
-      json: () => res.json(),
-      text: () => res.text(),
-    } as Response;
-  }
-  return fetch(url, { headers });
-}
 
 const MIXIN_KEY_TABLE = [
   46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
@@ -56,7 +30,7 @@ async function getMixinKey(cookie: string): Promise<string> {
     return wbiCache.mixinKey;
   }
 
-  const res = await proxyFetch(BILIBILI_NAV_URL, { Cookie: cookie, "User-Agent": "ContentHub/1.0" });
+  const res = await fetch(BILIBILI_NAV_URL, { headers: { Cookie: cookie, "User-Agent": "ContentHub/1.0" } });
   const data = await res.json();
   const { img_url, sub_url } = data.data?.wbi_img ?? {};
 
@@ -99,7 +73,11 @@ export class BilibiliAdapter implements PlatformAdapter {
 
   async fetchLatest(monitor: Monitor): Promise<RawContent[]> {
     const cookie = await this.loadCookie();
-    if (!cookie) throw new Error("B站 Cookie 未配置");
+    if (!cookie) {
+      const err = new Error("B站 Cookie 未配置");
+      (err as any).isPlatformLevel = true;
+      throw err;
+    }
 
     const cookieStr = parseCookieJson(cookie);
     const mixinKey = await getMixinKey(cookieStr);
@@ -115,7 +93,7 @@ export class BilibiliAdapter implements PlatformAdapter {
 
     const url = `${BILIBILI_SPACE_API}?mid=${params.mid}&ps=${params.ps}&pn=${params.pn}&wts=${wts}&w_rid=${w_rid}`;
 
-    const res = await proxyFetch(url, { Cookie: cookieStr, "User-Agent": "ContentHub/1.0", Referer: "https://space.bilibili.com/" });
+    const res = await fetch(url, { headers: { Cookie: cookieStr, "User-Agent": "ContentHub/1.0", Referer: "https://space.bilibili.com/" } });
 
     if (res.status === 401 || res.status === 403) {
       const err = new Error("B站 Cookie 已失效");
@@ -137,8 +115,15 @@ export class BilibiliAdapter implements PlatformAdapter {
     // Also fetch articles (专栏)
     let articles: RawContent[] = [];
     try {
-      const articleUrl = `${BILIBILI_ARTICLE_API}?mid=${monitor.native_id}&pn=1&ps=6`;
-      const artRes = await proxyFetch(articleUrl, { Cookie: cookieStr, "User-Agent": "ContentHub/1.0", Referer: "https://space.bilibili.com/" });
+      const artParams: Record<string, string> = {
+        mid: monitor.native_id,
+        ps: "6",
+        pn: "1",
+      };
+      const artWts = String(Math.floor(Date.now() / 1000));
+      const artW_rid = await wbiSign({ ...artParams, wts: artWts }, mixinKey);
+      const articleUrl = `${BILIBILI_ARTICLE_API}?mid=${artParams.mid}&ps=${artParams.ps}&pn=${artParams.pn}&wts=${artWts}&w_rid=${artW_rid}`;
+      const artRes = await fetch(articleUrl, { headers: { Cookie: cookieStr, "User-Agent": "ContentHub/1.0", Referer: "https://space.bilibili.com/" } });
       if (artRes.ok) {
         const artData = await artRes.json();
         articles = (artData.data?.articles ?? []).map((a: any) => ({
@@ -164,7 +149,12 @@ export class BilibiliAdapter implements PlatformAdapter {
 
   async fetchDisplayName(monitor: Monitor): Promise<string | null> {
     try {
-      const res = await proxyFetch(`${BILIBILI_ACC_API}?mid=${monitor.native_id}`, { "User-Agent": "ContentHub/1.0" });
+      const cookie = await this.loadCookie();
+      const headers: Record<string, string> = { "User-Agent": "ContentHub/1.0" };
+      if (cookie) {
+        headers["Cookie"] = parseCookieJson(cookie);
+      }
+      const res = await fetch(`${BILIBILI_ACC_API}?mid=${monitor.native_id}`, { headers });
       const data = await res.json();
       return data.data?.name ?? null;
     } catch {

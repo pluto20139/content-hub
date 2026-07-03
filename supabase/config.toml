@@ -383,9 +383,9 @@ inspector_port = 8083
 deno_version = 2
 
 [edge_runtime.secrets]
-YOUTUBE_API_KEY = "AIzaSyCWPDOYQQzwwrL6a6a_j1BkS_wDt0xM1nU"
-RSSHUB_URL = "https://rsshub.app"
-RSSHUB_API_KEY = ""
+YOUTUBE_API_KEY = "env(YOUTUBE_API_KEY)"
+RSSHUB_URL = "env(RSSHUB_URL)"
+RSSHUB_API_KEY = "env(RSSHUB_API_KEY)"
 
 [analytics]
 enabled = true

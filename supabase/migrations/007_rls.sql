@@ -20,12 +20,24 @@ CREATE POLICY contents_anon_read ON contents
   USING (is_display = true);
 
 -- ========== platform_configs 表 ==========
+CREATE OR REPLACE VIEW platform_configs_admin AS
+  SELECT 
+    id,
+    platform,
+    config_key,
+    updated_at,
+    CASE 
+      WHEN config_key = 'cookie' THEN NULL
+      ELSE config_value 
+    END AS config_value
+  FROM platform_configs;
+
 ALTER TABLE platform_configs ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY platform_configs_admin_read ON platform_configs
   FOR SELECT TO authenticated
-  USING (true);
--- 管理员只能读取，不能直接修改（通过 Edge Function 间接写入）
+  USING (false);
+-- 管理员只能读取视图，不能直接读取物理表
 -- anon 角色：无策略，默认拒绝
 
 -- ========== cron_locks 表 ==========
@@ -61,8 +73,8 @@ GRANT SELECT, INSERT, UPDATE ON public.contents TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.monitors TO authenticated;
 GRANT SELECT, UPDATE ON public.monitors TO service_role;
 
--- platform_configs: authenticated 只读，service_role 可读写
-GRANT SELECT ON public.platform_configs TO authenticated;
+-- platform_configs: authenticated 只能读视图，service_role 可读写原表
+GRANT SELECT ON public.platform_configs_admin TO authenticated;
 GRANT SELECT, INSERT, UPDATE ON public.platform_configs TO service_role;
 
 -- cron_locks: service_role 专享

@@ -10,6 +10,7 @@ build/
 .env
 .env.local
 .env.*.local
+.env.production
 
 # IDE
 .vscode/
@@ -23,6 +24,7 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
 
 # Supabase
 supabase/.branches/

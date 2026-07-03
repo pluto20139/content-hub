@@ -16,7 +16,10 @@ function getPlaceholderCover(platform: string): string {
     bilibili: "#FB7299",
     youtube: "#FF0000",
   };
-  return `data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" fill="${colors[platform] ?? "#999"}"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="20">${PLATFORMS[platform]?.name ?? ""}</text></svg>`;
+  const color = colors[platform] ?? "#999";
+  const name = PLATFORMS[platform]?.name ?? "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" fill="${color}"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="20">${name}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
 function handleClick(content: Content): void {

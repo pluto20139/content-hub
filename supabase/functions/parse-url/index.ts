@@ -97,7 +97,7 @@ async function resolveChannelId(
   }
 
   if (type === "handle") {
-    json = await youtubeApi(`channels?part=snippet&forHandle=${value}`);
+    json = await youtubeApi(`channels?part=snippet&forHandle=@${value}`);
   } else {
     json = await youtubeApi(`channels?part=snippet&forUsername=${value}`);
   }
@@ -122,9 +122,8 @@ async function parseYoutube(url: string): Promise<ParseResponse> {
   } else if ((match = YOUTUBE_HANDLE_RE.exec(url))) {
     type = "handle";
     value = match[1];
-  } else if ((match = YOUTUBE_C_RE.exec(url))) {
-    type = "username";
-    value = match[1];
+  } else if (YOUTUBE_C_RE.test(url)) {
+    return { success: false, error: { code: "INVALID_URL", message: "暂不支持 /c/ 自定义链接，请使用包含 @handle 或 /channel/UC... 的链接" } };
   } else {
     return { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法识别该 YouTube 链接格式" } };
   }

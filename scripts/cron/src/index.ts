@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { acquireLock, releaseLock } from "./lib/lock.js";
 import { queryActiveMonitors } from "./lib/monitors-query.js";
 import { withPlatformThrottle } from "./lib/throttle.js";
@@ -14,7 +15,7 @@ import { BilibiliAdapter } from "./adapters/bilibili.js";
 import { YoutubeAdapter } from "./adapters/youtube.js";
 import type { Monitor, CronResult, MonitorStatus, PlatformAdapter, PlatformResult } from "./adapters/types.js";
 
-const RUN_ID = `run-${process.env.GITHUB_RUN_ID ?? Date.now()}`;
+const RUN_ID = `run-${Date.now()}`;
 
 function createAdapter(platform: string): PlatformAdapter | null {
   switch (platform) {
@@ -39,7 +40,7 @@ function computeStatus(
   const failCount = currentFailCount + 1;
 
   if (currentStatus === "normal") {
-    return { status: "cookie_expired", failCount };
+    return failCount >= 3 ? { status: "rate_limited", failCount } : { status: "cookie_expired", failCount };
   }
 
   if (currentStatus === "cookie_expired") {
@@ -77,12 +78,6 @@ async function processPlatformGroup(
             { platform: "bilibili", config_key: "cookie_status", config_value: "expired", updated_at: nowIso },
             { onConflict: "platform,config_key" },
           );
-        await supabase
-          .from("platform_configs")
-          .upsert(
-            { platform: "bilibili", config_key: "cookie_meta", config_value: nowIso, updated_at: nowIso },
-            { onConflict: "platform,config_key" },
-          );
       } catch {
         // non-critical
       }
@@ -91,76 +86,70 @@ async function processPlatformGroup(
   }
 
   for (const { monitor, contents, error } of result.results) {
-    await withPlatformThrottle(adapter.platform, async () => {
-      try {
-        if (error) throw new Error(error);
+    try {
+      if (error) throw new Error(error);
 
-        // Pre-write verify: monitor still exists and active
-        const active = await verifyMonitorActive(monitor.id);
-        if (!active) {
-          console.log(`[CRON] Monitor ${monitor.id} deleted or inactive, skipping write-back`);
-          return;
-        }
+      // Pre-write verify: monitor still exists and active
+      const active = await verifyMonitorActive(monitor.id);
+      if (!active) {
+        console.log(`[CRON] Monitor ${monitor.id} deleted or inactive, skipping write-back`);
+        continue;
+      }
 
-        // Filter pinned/old content
-        const newContents = filterNewContent(contents, monitor.last_content_at);
+      // Filter pinned/old content
+      const newContents = filterNewContent(contents, monitor.last_content_at);
 
-        // Clean and upsert each piece
-        let inserted = 0;
-        for (const raw of newContents) {
-          const cleaned = cleanContent(raw);
-          if (!cleaned) continue;
-          const ok = await upsertContent(cleaned, monitor.id);
-          if (ok) inserted++;
-        }
+      // Clean and upsert each piece
+      let inserted = 0;
+      for (const raw of newContents) {
+        const cleaned = cleanContent(raw);
+        if (!cleaned) continue;
+        const ok = await upsertContent(cleaned, monitor.id);
+        if (ok) inserted++;
+      }
 
-        // Status write-back
-        const { status, failCount } = computeStatus(monitor.status, monitor.fail_count, true);
+      // Status write-back
+      const { status, failCount } = computeStatus(monitor.status, monitor.fail_count, true);
 
-        // Use the newest published_at across all new contents
-        const timestamps = newContents.map((c) => new Date(c.published_at).getTime());
-        const newestTime = timestamps.length > 0 ? Math.max(...timestamps) : undefined;
+      await updateMonitorStatus(monitor.id, {
+        status,
+        failCount,
+        lastSync: true,
+        newContent: inserted > 0,
+        lastContentAt: inserted > 0 ? new Date().toISOString() : undefined,
+      });
 
-        await updateMonitorStatus(monitor.id, {
-          status,
-          failCount,
-          lastSync: true,
-          newContent: inserted > 0,
-          lastContentAt: newestTime ? new Date(newestTime).toISOString() : undefined,
-        });
-
-        // Name refresh (name_auto=true only)
-        if (monitor.name_auto) {
-          const name = await adapter.fetchDisplayName(monitor);
-          if (name && name !== monitor.display_name) {
-            await updateDisplayName(monitor.id, name);
-          }
-        }
-
-        successCount++;
-        newContentCount += inserted;
-      } catch (err: any) {
-        console.error(`[CRON] Monitor ${monitor.id} failed:`, err.message);
-        const newState = computeStatus(monitor.status, monitor.fail_count, false);
-        try {
-          await updateMonitorStatus(monitor.id, {
-            status: newState.status,
-            failCount: newState.failCount,
-            lastSync: false,
-            newContent: false,
-          });
-        } catch {
-          // ignore status update failure
-        }
-
-        failCount++;
-
-        // Alert on rate_limited
-        if (newState.status === "rate_limited") {
-          await sendAlert({ ...monitor, status: newState.status, fail_count: newState.failCount });
+      // Name refresh (name_auto=true only)
+      if (monitor.name_auto) {
+        const name = await adapter.fetchDisplayName(monitor);
+        if (name && name !== monitor.display_name) {
+          await updateDisplayName(monitor.id, name);
         }
       }
-    });
+
+      successCount++;
+      newContentCount += inserted;
+    } catch (err: any) {
+      console.error(`[CRON] Monitor ${monitor.id} failed:`, err.message);
+      const newState = computeStatus(monitor.status, monitor.fail_count, false);
+      try {
+        await updateMonitorStatus(monitor.id, {
+          status: newState.status,
+          failCount: newState.failCount,
+          lastSync: false,
+          newContent: false,
+        });
+      } catch {
+        // ignore status update failure
+      }
+
+      failCount++;
+
+      // Alert on rate_limited
+      if (newState.status === "rate_limited") {
+        await sendAlert({ ...monitor, status: newState.status, fail_count: newState.failCount });
+      }
+    }
   }
 
   // B站 success → update cookie_status to valid (only if at least 1 monitor succeeded)
@@ -188,7 +177,7 @@ async function processPlatformGroup(
   return { successCount, failCount, newContentCount };
 }
 
-async function run(): Promise<CronResult> {
+export async function run(): Promise<CronResult> {
   const startTime = Date.now();
 
   // Step 1: Acquire lock
@@ -275,12 +264,14 @@ async function run(): Promise<CronResult> {
 }
 
 // Entry point
-run()
-  .then((result) => {
-    console.log("[CRON] Result:", JSON.stringify(result));
-    process.exit(0);
-  })
-  .catch((err) => {
-    console.error("[CRON] Fatal error:", err);
-    process.exit(1);
-  });
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  run()
+    .then((result) => {
+      console.log("[CRON] Result:", JSON.stringify(result));
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error("[CRON] Fatal error:", err);
+      process.exit(1);
+    });
+}

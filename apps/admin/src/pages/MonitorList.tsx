@@ -21,7 +21,7 @@ interface Monitor {
 const STATUS_FILTERS = [
   { key: "all", label: "全部" },
   { key: "normal", label: "正常" },
-  { key: "cookie_expired+rate_limited", label: "异常" },
+  { key: "rate_limited", label: "异常" },
   { key: "inactive", label: "已关闭" },
 ];
 
@@ -47,12 +47,13 @@ function freshnessWarning(lastContentAt: string | null): { text: string; red: bo
   const days = getDaysSinceActivity(new Date(lastContentAt));
   if (days <= 30) return null;
   const red = days > 90;
-  return { text: `该博主已超过 ${days} 天未更新${red ? "，建议关闭监控或移除" : ""}`, red };
+  return { text: `⚪ 该博主已超过 ${days} 天未更新${red ? "，建议关闭监控或移除" : ""}`, red };
 }
 
 export default function MonitorList() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [platformFilter, setPlatformFilter] = useState("all");
   const [urlInput, setUrlInput] = useState("");
@@ -66,20 +67,34 @@ export default function MonitorList() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const fetchMonitors = useCallback(async () => {
-    const { data } = await supabase
+    setError(null);
+    const { data, error } = await supabase
       .from("monitors")
       .select("*")
       .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Failed to fetch monitors:", error.message);
+      setError("加载监控列表失败，请刷新重试");
+      setLoading(false);
+      return;
+    }
 
     setMonitors((data ?? []) as Monitor[]);
     setLoading(false);
   }, []);
 
   const fetchCookieInfo = useCallback(async () => {
-    const { data } = await supabase
-      .from("platform_configs")
+    const { data, error } = await supabase
+      .from("platform_configs_admin")
       .select("config_key,config_value,updated_at")
       .eq("platform", "bilibili");
+
+    if (error) {
+      console.error("Failed to fetch platform configs:", error.message);
+      setError("加载配置信息失败，请刷新重试");
+      return;
+    }
 
     const cookie = (data ?? []).find((r: any) => r.config_key === "cookie_meta");
     const status = (data ?? []).find((r: any) => r.config_key === "cookie_status");
@@ -102,8 +117,6 @@ export default function MonitorList() {
     if (platformFilter !== "all" && m.platform !== platformFilter) return false;
     if (statusFilter === "all") return true;
     if (statusFilter === "inactive") return !m.is_active;
-    if (statusFilter === "cookie_expired+rate_limited")
-      return m.status === "cookie_expired" || m.status === "rate_limited";
     return m.status === statusFilter;
   });
 
@@ -302,6 +315,25 @@ export default function MonitorList() {
 
   if (loading) return <div className="p-6 text-gray-400">加载中...</div>;
 
+  if (error) {
+    return (
+      <div className="p-6 text-red-500 flex flex-col items-center gap-4">
+        <span>{error}</span>
+        <button
+          onClick={() => {
+            setLoading(true);
+            setError(null);
+            fetchMonitors();
+            fetchCookieInfo();
+          }}
+          className="px-4 py-2 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
+        >
+          重试
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 max-w-4xl mx-auto">
       <h1 className="text-xl font-bold mb-4">监控管理</h1>
@@ -465,29 +497,12 @@ export default function MonitorList() {
                 >
                   重置
                 </button>
-                {deletingId === m.id ? (
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => deleteMonitor(m.id)}
-                      className="text-xs px-2 py-1 rounded bg-red-500 text-white"
-                    >
-                      确认
-                    </button>
-                    <button
-                      onClick={() => setDeletingId(null)}
-                      className="text-xs px-2 py-1 rounded bg-gray-200"
-                    >
-                      取消
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setDeletingId(m.id)}
-                    className="text-xs px-2 py-1 rounded bg-gray-100 text-red-500 hover:bg-gray-200"
-                  >
-                    删除
-                  </button>
-                )}
+                <button
+                  onClick={() => setDeletingId(m.id)}
+                  className="text-xs px-2 py-1 rounded bg-gray-100 text-red-500 hover:bg-gray-200"
+                >
+                  删除
+                </button>
               </div>
             </div>
           );
@@ -496,6 +511,36 @@ export default function MonitorList() {
 
       {filtered.length === 0 && (
         <div className="text-center text-gray-400 py-8 text-sm">暂无监控</div>
+      )}
+
+      {/* Modal 弹窗二次确认 */}
+      {deletingId !== null && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">确认删除监控？</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              删除后将无法恢复，关联的抓取内容仍会保留在数据库中，但不再更新。
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setDeletingId(null)}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-sm font-medium"
+              >
+                取消
+              </button>
+              <button
+                onClick={async () => {
+                  const id = deletingId;
+                  setDeletingId(null);
+                  await deleteMonitor(id);
+                }}
+                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded text-sm font-medium"
+              >
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

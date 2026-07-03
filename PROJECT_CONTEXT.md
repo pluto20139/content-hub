@@ -17,10 +17,10 @@
 | **后端服务** | Supabase Cloud | PostgreSQL + PostgREST + Edge Functions |
 | **数据库** | PostgreSQL 15（Supabase 托管） | 支持 RLS、pg_cron、Supabase Vault |
 | **Edge Functions** | Deno + TypeScript | 轻量级 serverless 函数 |
-| **定时任务** | GitHub Actions | 每 30 分钟触发 Node.js 抓取脚本 |
+| **定时任务** | 腾讯云 pm2 | pm2 守护进程，使用 node-cron 每 30 分钟触发抓取脚本 |
 | **知乎中转** | RSSHub（Railway/Fly.io 部署） | Docker 容器，API Key 鉴权 |
 | **包管理** | pnpm + workspace | Monorepo 依赖管理 |
-| **前端托管** | Vercel | 静态 SPA 部署 |
+| **前端托管** | 腾讯云 nginx | 静态 SPA 部署 |
 
 ### 1.2 关键依赖
 
@@ -35,14 +35,16 @@
 
 | 变量名 | 存储位置 | 说明 |
 |---|---|---|
-| `SUPABASE_URL` | Vercel / GitHub Secrets | Supabase 项目 URL |
-| `SUPABASE_ANON_KEY` | Vercel | 前端公开使用，受 RLS 保护 |
-| `SUPABASE_SERVICE_ROLE_KEY` | GitHub Secrets **仅** | 绕过 RLS，仅 Cron 和 Edge Function 使用 |
-| `YOUTUBE_API_KEY` | GitHub Secrets + Supabase Secrets | YouTube Data API v3 密钥（双配置，SPEC 5.3 规则 5） |
+| `SUPABASE_URL` | 腾讯云服务器环境变量 / Supabase Edge | Supabase 项目 URL |
+| `SUPABASE_ANON_KEY` | 腾讯云服务器环境变量 / Supabase Edge | 前端公开使用，受 RLS 保护 |
+| `SUPABASE_SERVICE_ROLE_KEY` | 腾讯云服务器环境变量 | 绕过 RLS，仅 Cron 使用 |
+| `VITE_SUPABASE_URL` | Vite 编译期注入（本位） | Nginx/静态托管前端请求 Supabase 的 URL |
+| `VITE_SUPABASE_ANON_KEY` | Vite 编译期注入（本位） | Nginx/静态托管前端请求 Supabase 的 ANON_KEY |
+| `YOUTUBE_API_KEY` | 腾讯云服务器环境变量 + Supabase Secrets | YouTube Data API v3 密钥（双配置，SPEC 5.3 规则 5） |
 | `BILIBILI_COOKIE` | `platform_configs` 表 + Supabase Vault 加密 | B站 Cookie，扫码登录后存入数据库（非环境变量） |
-| `RSSHUB_URL` `[Phase 2]` | GitHub Secrets（Phase 2 启用时配置） | RSSHub 实例地址。MVP 不使用 |
-| `RSSHUB_API_KEY` `[Phase 2]` | GitHub Secrets（Phase 2 启用时配置） | RSSHub 访问鉴权密钥。MVP 不使用 |
-| `WECOM_WEBHOOK_URL` | GitHub Secrets（可选） | 企业微信告警 Webhook |
+| `RSSHUB_URL` `[Phase 2]` | 腾讯云服务器环境变量（Phase 2 启用时配置） | RSSHub 实例地址。MVP 不使用 |
+| `RSSHUB_API_KEY` `[Phase 2]` | 腾讯云服务器环境变量（Phase 2 启用时配置） | RSSHub 访问鉴权密钥。MVP 不使用 |
+| `WECOM_WEBHOOK_URL` | 腾讯云服务器环境变量（可选） | 企业微信告警 Webhook |
 
 ---
 
@@ -115,7 +117,7 @@
 │   └── config.toml                 # Supabase 项目配置
 │
 ├── scripts/
-│   └── cron/                       # GitHub Actions Cron 脚本
+│   └── cron/                       # pm2 Cron 守护进程与定时脚本
 │       ├── src/
 │       │   ├── adapters/           # 平台适配器
 │       │   │   ├── bilibili.ts     # B站适配器
@@ -130,10 +132,6 @@
 │       │   └── index.ts            # 主入口
 │       ├── package.json
 │       └── tsconfig.json
-│
-├── .github/
-│   └── workflows/
-│       └── cron-fetch.yml          # GitHub Actions 定时抓取工作流
 │
 ├── docs/                           # 项目文档
 ├── .env.example                    # 环境变量示例
@@ -174,7 +172,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Vercel (静态托管)                         │
+│                  腾讯云 nginx (静态托管)                      │
 │  ├── apps/admin (配置管理端 SPA)                             │
 │  └── apps/h5   (用户端 H5 SPA)                               │
 └──────────────────────┬──────────────────────────────────────┘
@@ -193,7 +191,7 @@
                        │ Supabase REST API (service_role key)
                        │
 ┌──────────────────────▼──────────────────────────────────────┐
-│              GitHub Actions (每 30 分钟触发)                   │
+│            腾讯云服务器 (pm2 + node-cron 守护进程)            │
 │  ├── Node.js 抓取脚本                                         │
 │  │   ├── B站适配器 → B站空间 API (带 Cookie)                  │
 │  │   ├── YouTube 适配器 → YouTube Data API v3                │
@@ -212,22 +210,22 @@
 
 | # | 约束 | 理由 |
 |---|---|---|
-| AC1 | **前端不直接调用任何第三方平台 API** | B站/YouTube/知乎的 API 调用全部在 GitHub Actions Cron 脚本内完成，前端只与 Supabase 交互 |
+| AC1 | **前端不直接调用任何第三方平台 API** | B站/YouTube/知乎的 API 调用全部在 pm2 Cron 守护进程内完成，前端只与 Supabase 交互 |
 | AC2 | **Cron 脚本不直接操作数据库连接** | 通过 Supabase REST API（Service Role Key）写入数据，不直连 PostgreSQL |
 | AC3 | **Edge Functions 仅用于轻量逻辑** | URL 解析、B站扫码登录等。数据密集型操作用 PostgREST 或 Database Functions |
-| AC4 | **Service Role Key 永不暴露到前端** | 仅存储在 GitHub Secrets 中，供 Cron 脚本和 Edge Functions 使用 |
+| AC4 | **Service Role Key 永不暴露到前端** | 仅存储在腾讯云环境变量中，供 Cron 脚本和 Edge Functions 使用 |
 | AC5 | **RSSHub 必须启用 API Key 鉴权** | RSSHub 暴露在公网，通过 `ACCESS_CONTROL` 配置项限制访问 |
 | AC6 | **Cron 互斥锁基于 cron_locks 表行级锁** | 不使用 pg_advisory_lock（REST API 每次请求是独立会话），改用数据库表行 + PATCH 原子操作实现互斥 |
 | AC7 | **所有数据库表必须启用 RLS** | 即使是内部表，也通过 RLS 策略显式控制访问权限 |
 | AC8 | **Cron 脚本按平台串行、平台间可并行** | 同平台请求间隔 ≥ 1.5 秒（防反爬），不同平台无此限制 |
 | AC9 | **敏感信息（Cookie、API Key）加密存储** | B站 Cookie 存入 `platform_configs` 表，使用 Supabase Vault 加密 |
-| AC10 | **前端 SPA 不做服务端渲染** | 纯客户端渲染，SEO 不是需求，Vercel 静态托管即可 |
+| AC10 | **前端 SPA 不做服务端渲染** | 纯客户端渲染，SEO 不是需求，腾讯云 nginx 静态托管即可 |
 
 ### 3.3 数据流约束
 
 ```
 写入流（Cron 抓取）：
-  GitHub Actions → 第三方 API → 清洗标准化 → Supabase REST API (UPSERT) → PostgreSQL
+  腾讯云 pm2 → 第三方 API → 清洗标准化 → Supabase REST API (UPSERT) → PostgreSQL
 
 读取流（H5 浏览）：
   H5 SPA → Supabase REST API (SELECT is_display=true) → PostgreSQL
@@ -256,7 +254,7 @@ Content Hub
 │   └── M5: 昵称管理 (同步获取 + 行内编辑)
 │
 ├── 【后端自动化引擎】
-│   ├── M6: Cron 调度 (GitHub Actions)
+│   ├── M6: Cron 调度 (pm2 + node-cron)
 │   ├── M7: 平台适配器层
 │   │   ├── B站适配器 (Cookie + 空间 API)
 │   │   ├── YouTube 适配器 (Data API v3)
@@ -428,7 +426,7 @@ CREATE POLICY "platform_configs_admin_all" ON platform_configs
 | **Supabase REST API** | HTTPS RESTful | 前端 SPA / Cron 脚本 | PostgREST 自动生成，标准 RESTful |
 | **Edge Functions** | HTTPS POST | 前端 SPA | Deno 函数，JSON 请求/响应 |
 | **平台 API** | HTTPS | Cron 脚本 | B站 / YouTube / RSSHub，各平台自有规范 |
-| **GitHub Actions** | YAML 工作流 | GitHub 调度器 | 定时触发 Cron 脚本 |
+| **pm2 (node-cron)** | 守护进程调度 | pm2 守护进程 | 定时触发 Cron 脚本 |
 
 ### 6.2 Supabase REST API 规范
 
@@ -614,35 +612,7 @@ Edge Function 统一错误码：
 | `RSSHUB_ERROR` | 502 | RSSHub 接口调用失败 |
 | `INTERNAL_ERROR` | 500 | 未预期的内部错误 |
 
-### 6.6 GitHub Actions 工作流规范
 
-```yaml
-# .github/workflows/cron-fetch.yml
-name: Cron Fetch
-on:
-  schedule:
-    - cron: '*/30 * * * *'  # 每 30 分钟
-  workflow_dispatch: {}       # 支持手动触发（调试用）
-
-jobs:
-  fetch:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
-      RSSHUB_URL: ${{ secrets.RSSHUB_URL }}
-      RSSHUB_API_KEY: ${{ secrets.RSSHUB_API_KEY }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - uses: pnpm/action-setup@v4
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @content-hub/cron start
-```
 
 ---
 
@@ -653,6 +623,6 @@ jobs:
 1. **Supabase Edge Functions 组织方式**：采用官方推荐的 "fat functions" 模式（少而大的函数），共享代码放 `_shared` 目录（下划线前缀不部署），函数名使用连字符（URL 友好）。
 2. **Supabase RLS 安全模式**：所有暴露表必须启用 RLS，`service_role` 密钥绕过 RLS 仅用于服务端，前端只使用 `anon_key`。
 3. **Monorepo 共享类型**：前后端共享类型放在 `packages/shared`，作为 Single Source of Truth，避免类型定义分散。
-4. **GitHub Actions Secrets 管理**：敏感信息（API Key、Service Role Key）存储在 GitHub Secrets 中，不硬编码到代码或环境文件。
+4. **环境变量管理**：敏感信息（API Key、Service Role Key）存储在腾讯云环境变量中，不硬编码到代码或配置文件中。
 5. **PostgreSQL UPSERT 模式**：使用 `ON CONFLICT ... DO UPDATE WHERE` 实现防复活保护，软删除记录不被意外重置。
 6. **cron_locks 行级互斥**：使用数据库表行 + PATCH 原子操作（而非 pg_advisory_lock），因为 Supabase REST API 每次请求是独立会话，跨会话锁失效。

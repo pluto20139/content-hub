@@ -105,11 +105,7 @@ async function handlePoll(qrcodeKey: string): Promise<Response> {
     return json({ success: true, data: { status: "expired" } });
   }
 
-  if (data.code === 86039) {
-    return json({ success: true, data: { status: "waiting" } });
-  }
-
-  if (data.code === 86101) {
+  if (data.code === 86039 || data.code === 86101 || data.code === 86090) {
     return json({ success: true, data: { status: "waiting" } });
   }
 
@@ -165,10 +161,10 @@ async function handlePoll(qrcodeKey: string): Promise<Response> {
   return json({
     success: false,
     error: {
-      code: "BILIBILI_QRCODE_EXPIRED",
-      message: "二维码已过期，请重新获取",
+      code: "INTERNAL_ERROR",
+      message: `扫码异常(Code: ${data.code})，请重试`,
     },
-  }, 400);
+  });
 }
 
 // ── Main handler ──────────────────────────────────────

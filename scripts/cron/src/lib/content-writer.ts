@@ -71,8 +71,8 @@ export async function updateMonitorStatus(
     patch.last_sync_at = new Date().toISOString();
   }
 
-  if (updates.newContent && updates.lastContentAt) {
-    patch.last_content_at = updates.lastContentAt;
+  if (updates.newContent) {
+    patch.last_content_at = updates.lastContentAt || new Date().toISOString();
   }
 
   const { error } = await supabase

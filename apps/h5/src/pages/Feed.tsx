@@ -22,12 +22,14 @@ interface Props {
 export default function Feed({ platform }: Props) {
   const [contents, setContents] = useState<Content[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const observerRef = useRef<HTMLDivElement | null>(null);
 
   const fetchPage = useCallback(
     async (offset: number): Promise<void> => {
       setLoading(true);
+      setError(null);
       let query = supabase
         .from("contents")
         .select("id,platform,native_id,content_type,title,cover_url,original_url,published_at")
@@ -43,6 +45,7 @@ export default function Feed({ platform }: Props) {
 
       if (error) {
         console.error("Failed to fetch contents:", error.message);
+        setError("加载失败，请重试");
         setLoading(false);
         return;
       }
@@ -68,7 +71,7 @@ export default function Feed({ platform }: Props) {
     if (!observerRef.current) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loading) {
+        if (entries[0].isIntersecting && hasMore && !loading && !error) {
           fetchPage(contents.length);
         }
       },
@@ -76,12 +79,26 @@ export default function Feed({ platform }: Props) {
     );
     observer.observe(observerRef.current);
     return () => observer.disconnect();
-  }, [hasMore, loading, contents.length, fetchPage]);
+  }, [hasMore, loading, error, contents.length, fetchPage]);
 
   if (loading && contents.length === 0) {
     return (
       <div className="flex items-center justify-center h-64 text-gray-400 text-sm">
         加载中...
+      </div>
+    );
+  }
+
+  if (contents.length === 0 && error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-3 text-sm">
+        <span className="text-red-500">{error}</span>
+        <button
+          onClick={() => fetchPage(0)}
+          className="px-4 py-1.5 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600"
+        >
+          点击重试
+        </button>
       </div>
     );
   }
@@ -101,6 +118,16 @@ export default function Feed({ platform }: Props) {
       ))}
       {loading && (
         <div className="text-center text-gray-400 text-xs py-4">加载中...</div>
+      )}
+      {error && contents.length > 0 && (
+        <div className="text-center py-4">
+          <button
+            onClick={() => fetchPage(contents.length)}
+            className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs font-medium"
+          >
+            加载失败，点击重试
+          </button>
+        </div>
       )}
       {!hasMore && contents.length > 0 && (
         <div className="text-center text-gray-300 text-xs py-4">没有更多内容了</div>

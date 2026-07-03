@@ -147,7 +147,7 @@ CREATE INDEX idx_contents_platform_display
 
 ### 1.6 软删除定时任务（pg_cron）
 
-> **调度隔离**：pg_cron 软删除任务（每日 3:00 UTC）与 GitHub Actions 抓取任务（每 30 分钟）独立运行，互不影响。pg_cron 在 Supabase 数据库内部执行，GitHub Actions 在外部运行。
+> **调度隔离**：pg_cron 软删除任务（每日 3:00 UTC）与腾讯云 pm2 抓取任务（使用 node-cron 每 30 分钟触发）独立运行，互不影响。pg_cron 在 Supabase 数据库内部执行，pm2 定时调度在外部运行。
 
 ```sql
 -- 启用 pg_cron 扩展
@@ -210,7 +210,7 @@ SELECT cron.schedule(
 | Supabase REST API | Admin SPA / H5 SPA | HTTPS | PostgREST 自动生成，标准 CRUD |
 | Edge Function: `parse-url` | Admin SPA | HTTPS POST | URL 解析 + 平台识别 |
 | Edge Function: `bilibili-auth` | Admin SPA | HTTPS POST | B站扫码登录 |
-| Cron 内部接口 | GitHub Actions 脚本内部 | TypeScript | 适配器接口，不对外暴露 |
+| Cron 内部接口 | pm2 Cron 守护进程/脚本内部 | TypeScript | 适配器接口，不对外暴露 |
 
 ### 2.2 Supabase REST API
 
@@ -691,7 +691,7 @@ interface ContentWriter {
 > **注意**：不使用 `pg_advisory_lock`，因为 Supabase REST API 每次请求是独立会话，请求结束后锁自动释放，跨请求无法持有锁。改用基于数据库行的互斥机制。
 
 ```
-  GitHub Actions 触发
+  pm2 (node-cron) 定时触发
       │
       ▼
   ┌─ 获取行级锁（cron_locks 表）───────────┐
@@ -962,7 +962,7 @@ CREATE POLICY soft_delete_logs_cron_insert ON cron_soft_delete_logs
 3. Cron 脚本通过 service_role 读取 Cookie 用于 API 请求
 4. 管理员前端只展示 `updated_at`，不展示 `config_value` 原文
 5. YouTube API Key 需同时配置在两处（不存入此表）：
-   - **GitHub Actions Secrets**（`YOUTUBE_API_KEY`）：Cron 脚本 YoutubeAdapter 使用
+   - **腾讯云环境变量 (.env.production)**（`YOUTUBE_API_KEY`）：Cron 脚本 YoutubeAdapter 使用
    - **Supabase Edge Function 环境变量**（`YOUTUBE_API_KEY`）：`parse-url` 函数解析 YouTube URL 时使用（`channels.list?forHandle=`）
 
 ### 5.4 ParsedUrl（URL 解析结果）
@@ -1170,7 +1170,7 @@ async fetchAll(monitors: Monitor[]): Promise<PlatformResult> {
 | 属性 | 值 |
 |---|---|
 | **对象名称** | CronRunner |
-| **职责** | GitHub Actions 每 30 分钟触发的主流程编排器 |
+| **职责** | pm2 (node-cron) 每 30 分钟触发的主流程编排器 |
 | **位置** | `scripts/cron/src/index.ts` |
 
 **执行流程**：
@@ -1313,7 +1313,7 @@ CronRunner.run()
 ### 7.3 告警渠道
 
 - 企业微信 Webhook（`WECOM_WEBHOOK_URL`）
-- 若未配置 Webhook，仅记录到 GitHub Actions 日志
+- 若未配置 Webhook，仅记录到 pm2 日志
 
 ---
 
@@ -1336,7 +1336,7 @@ CronRunner.run()
 | YouTube monitor 距上次抓取不足 4 小时 | CronRunner Step 2.5 降频过滤，本轮跳过，不更新任何字段，不视为失败 |
 | monitor 抓取期间被管理员删除 | 写回前校验（fetchLatest 之后、UPSERT 之前）→ 不存在则跳过 UPSERT 和状态写回，避免外键约束失败 |
 | 管理员关闭监控期间的新内容 | 写回前校验发现 is_active=false → 跳过 UPSERT，已抓取内容丢弃不入库。重新开启后仅抓取最新前 6 条，关闭期间更早的内容不补抓 |
-| 数据库连接失败 | Cron 记录错误日志，退出本轮，30 分钟后 GitHub Actions 自动重试 |
+| 数据库连接失败 | Cron 记录错误日志，退出本轮，30 分钟后 node-cron 自动重试 |
 
 ---
 

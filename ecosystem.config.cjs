@@ -12,7 +12,8 @@ module.exports = {
       env: {
         NODE_ENV: "production",
       },
-      env_file: ".env.production",
+      env_production: {},
+      env_file: "/opt/content-hub/.env.production",
       output: "logs/cron-out.log",
       error: "logs/cron-error.log",
       time: true,

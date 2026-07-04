@@ -10,6 +10,7 @@ interface ParseSuccess {
     platform: string;
     native_id: string;
     display_name: string;
+    native_type?: string | null;
   };
 }
 
@@ -24,27 +25,84 @@ interface ParseError {
 type ParseResponse = ParseSuccess | ParseError;
 
 const YOUTUBE_API_KEY = Deno.env.get("YOUTUBE_API_KEY") ?? "";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "http://127.0.0.1:54321";
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+// ── Generic redirect resolver & DB Cache ─────────────
+
+/** Resolve short links by following the redirect with a mobile UA. */
+async function resolveRedirect(shortUrl: string): Promise<string | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+  try {
+    const res = await fetch(shortUrl, {
+      method: "HEAD",
+      redirect: "manual",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return res.headers.get("location") ?? null;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    console.error(`Failed to resolve redirect for ${shortUrl}:`, err);
+    return null;
+  }
+}
+
+async function getCachedLink(shortCode: string): Promise<{ resolved_id: string; resolved_type: string | null } | null> {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/short_link_cache?short_code=eq.${encodeURIComponent(shortCode)}&select=resolved_id,resolved_type,expires_at`, {
+      headers: {
+        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        apikey: SERVICE_ROLE_KEY,
+      }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        const item = data[0];
+        if (new Date(item.expires_at) > new Date()) {
+          return { resolved_id: item.resolved_id, resolved_type: item.resolved_type };
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to query short_link_cache:", err);
+  }
+  return null;
+}
+
+async function cacheLink(shortCode: string, resolvedId: string, resolvedType: string | null): Promise<void> {
+  try {
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await fetch(`${SUPABASE_URL}/rest/v1/short_link_cache`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        apikey: SERVICE_ROLE_KEY,
+        Prefer: "resolution=merge-duplicates",
+      },
+      body: JSON.stringify({
+        short_code: shortCode,
+        resolved_id: resolvedId,
+        resolved_type: resolvedType,
+        expires_at: expiresAt,
+      }),
+    });
+  } catch (err) {
+    console.error("Failed to write to short_link_cache:", err);
+  }
+}
 
 // ── B站 ──────────────────────────────────────────────
 
 const BILIBILI_SPACE_RE = /space\.bilibili\.com\/(\d+)/;
 const BILIBILI_SHORT_RE = /b23\.tv\//;
 const BILIBILI_DOMAIN_RE = /bilibili\.com/;
-
-/** Resolve b23.tv short links by following the redirect. */
-async function resolveB23ShortLink(shortUrl: string): Promise<string | null> {
-  try {
-    const res = await fetch(shortUrl, {
-      method: "HEAD",
-      redirect: "manual",
-      headers: { "User-Agent": "ContentHub/1.0" },
-    });
-    const location = res.headers.get("location");
-    return location ?? null;
-  } catch {
-    return null;
-  }
-}
 
 async function parseBilibili(mid: string): Promise<ParseResponse> {
   let displayName = `B站_${mid.slice(0, 8)}`;
@@ -63,7 +121,7 @@ async function parseBilibili(mid: string): Promise<ParseResponse> {
   }
   return {
     success: true,
-    data: { platform: "bilibili", native_id: mid, display_name: displayName },
+    data: { platform: "bilibili", native_id: mid, display_name: displayName, native_type: "user" },
   };
 }
 
@@ -107,6 +165,31 @@ async function resolveChannelId(
   return { channelId: item.id, title: item.snippet?.title ?? "" };
 }
 
+async function resolveYoutubeC(cName: string): Promise<string | null> {
+  const url = `https://www.youtube.com/c/${cName}`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+      },
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const canonicalMatch = /<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[^"]+)"/.exec(html);
+      if (canonicalMatch) return canonicalMatch[1];
+
+      const metaMatch = /<meta itemprop="channelId" content="(UC[^"]+)"/.exec(html);
+      if (metaMatch) return metaMatch[1];
+
+      const jsonMatch = /"channelId":"(UC[^"]+)"/.exec(html);
+      if (jsonMatch) return jsonMatch[1];
+    }
+  } catch (err) {
+    console.error(`Failed to resolve YouTube /c/ link for ${cName}:`, err);
+  }
+  return null;
+}
+
 async function parseYoutube(url: string): Promise<ParseResponse> {
   if (!YOUTUBE_API_KEY) {
     return { success: false, error: { code: "INTERNAL_ERROR", message: "YouTube API key not configured" } };
@@ -122,8 +205,13 @@ async function parseYoutube(url: string): Promise<ParseResponse> {
   } else if ((match = YOUTUBE_HANDLE_RE.exec(url))) {
     type = "handle";
     value = match[1];
-  } else if (YOUTUBE_C_RE.test(url)) {
-    return { success: false, error: { code: "INVALID_URL", message: "暂不支持 /c/ 自定义链接，请使用包含 @handle 或 /channel/UC... 的链接" } };
+  } else if ((match = YOUTUBE_C_RE.exec(url))) {
+    type = "channel";
+    const cId = await resolveYoutubeC(match[1]);
+    if (!cId) {
+      return { success: false, error: { code: "INVALID_URL", message: "无法解析该 YouTube /c/ 链接，请改用包含 @handle 或 /channel/UC... 的链接" } };
+    }
+    value = cId;
   } else {
     return { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法识别该 YouTube 链接格式" } };
   }
@@ -133,11 +221,147 @@ async function parseYoutube(url: string): Promise<ParseResponse> {
     const displayName = title || `YouTube_${channelId.slice(0, 8)}`;
     return {
       success: true,
-      data: { platform: "youtube", native_id: channelId, display_name: displayName },
+      data: { platform: "youtube", native_id: channelId, display_name: displayName, native_type: null },
     };
   } catch {
     return { success: false, error: { code: "YOUTUBE_API_ERROR", message: "YouTube API 调用失败，请稍后重试" } };
   }
+}
+
+// ── 知乎 ──────────────────────────────────────────────
+
+const ZHIHU_PEOPLE_RE = /zhihu\.com\/people\/([^/?#]+)/;
+const ZHIHU_COLUMN_RE = /zhuanlan\.zhihu\.com\/((?!p\/)[^/?#]+)/;
+const ZHIHU_COLUMN_ALT_RE = /zhihu\.com\/column\/([^/?#]+)/;
+const ZHIHU_COLUMN_C_RE = /zhuanlan\.zhihu\.com\/c\/([^/?#]+)/;
+
+async function parseZhihu(url: string): Promise<ParseResponse> {
+  let match: RegExpExecArray | null;
+  let native_id = "";
+  let displayName = "";
+  let native_type = "";
+
+  if ((match = ZHIHU_PEOPLE_RE.exec(url))) {
+    const peopleId = match[1];
+    native_id = peopleId;
+    displayName = `知乎用户_${peopleId}`;
+    native_type = "people";
+  } else if ((match = ZHIHU_COLUMN_C_RE.exec(url))) {
+    const columnId = match[1];
+    native_id = columnId;
+    displayName = `知乎专栏_${columnId}`;
+    native_type = "column";
+  } else if ((match = ZHIHU_COLUMN_RE.exec(url)) || (match = ZHIHU_COLUMN_ALT_RE.exec(url))) {
+    const columnId = match[1];
+    native_id = columnId;
+    displayName = `知乎专栏_${columnId}`;
+    native_type = "column";
+  } else {
+    return { success: false, error: { code: "INVALID_URL", message: "知乎链接格式不正确" } };
+  }
+
+  return {
+    success: true,
+    data: { platform: "zhihu", native_id, display_name: displayName, native_type },
+  };
+}
+
+// ── 抖音 ──────────────────────────────────────────────
+
+const DOUYIN_SHORT_RE = /v\.douyin\.com\//;
+const DOUYIN_USER_RE = /douyin\.com\/user\/([^/?#]+)/;
+
+async function parseDouyin(url: string): Promise<ParseResponse> {
+  let resolvedUrl = url;
+  if (DOUYIN_SHORT_RE.test(url)) {
+    const cached = await getCachedLink(url);
+    if (cached) {
+      return {
+        success: true,
+        data: {
+          platform: "douyin",
+          native_id: cached.resolved_id,
+          display_name: `抖音用户_${cached.resolved_id.slice(0, 8)}`,
+          native_type: cached.resolved_type,
+        },
+      };
+    }
+
+    const redirect = await resolveRedirect(url);
+    if (!redirect) {
+      return { success: false, error: { code: "INVALID_URL", message: "无法解析该抖音短链接，请使用完整链接" } };
+    }
+    resolvedUrl = redirect;
+  }
+
+  const match = DOUYIN_USER_RE.exec(resolvedUrl);
+  if (!match) {
+    return { success: false, error: { code: "INVALID_URL", message: "请粘贴抖音个人主页链接" } };
+  }
+
+  const secUid = match[1];
+  if (url !== resolvedUrl) {
+    await cacheLink(url, secUid, "people");
+  }
+
+  return {
+    success: true,
+    data: {
+      platform: "douyin",
+      native_id: secUid,
+      display_name: `抖音用户_${secUid.slice(0, 8)}`,
+      native_type: "people",
+    },
+  };
+}
+
+// ── 小红书 ────────────────────────────────────────────
+
+const XIAOHONGSHU_SHORT_RE = /(xhslink\.com\/|sns\.xiaohongshu\.com\/t\/)/;
+const XIAOHONGSHU_USER_RE = /xiaohongshu\.com\/user\/profile\/([^/?#]+)/;
+
+async function parseXiaohongshu(url: string): Promise<ParseResponse> {
+  let resolvedUrl = url;
+  if (XIAOHONGSHU_SHORT_RE.test(url)) {
+    const cached = await getCachedLink(url);
+    if (cached) {
+      return {
+        success: true,
+        data: {
+          platform: "xiaohongshu",
+          native_id: cached.resolved_id,
+          display_name: `小红书用户_${cached.resolved_id.slice(0, 8)}`,
+          native_type: cached.resolved_type,
+        },
+      };
+    }
+
+    const redirect = await resolveRedirect(url);
+    if (!redirect) {
+      return { success: false, error: { code: "INVALID_URL", message: "无法解析该小红书短链接，请使用完整链接" } };
+    }
+    resolvedUrl = redirect;
+  }
+
+  const match = XIAOHONGSHU_USER_RE.exec(resolvedUrl);
+  if (!match) {
+    return { success: false, error: { code: "INVALID_URL", message: "请粘贴小红书个人主页链接" } };
+  }
+
+  const userId = match[1];
+  if (url !== resolvedUrl) {
+    await cacheLink(url, userId, "people");
+  }
+
+  return {
+    success: true,
+    data: {
+      platform: "xiaohongshu",
+      native_id: userId,
+      display_name: `小红书用户_${userId.slice(0, 8)}`,
+      native_type: "people",
+    },
+  };
 }
 
 // ── URL validation ────────────────────────────────────
@@ -154,7 +378,6 @@ function isValidUrl(str: string): boolean {
 // ── Main handler ──────────────────────────────────────
 
 async function handleRequest(req: Request): Promise<Response> {
-  // CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -187,10 +410,10 @@ async function handleRequest(req: Request): Promise<Response> {
   let result: ParseResponse | undefined;
 
   try {
-    // Resolve b23.tv short links first
     let resolvedUrl = url;
+    // Resolve B站 short links first using generic redirect resolver
     if (BILIBILI_SHORT_RE.test(url)) {
-      const redirect = await resolveB23ShortLink(url);
+      const redirect = await resolveRedirect(url);
       if (!redirect) {
         result = { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法解析 B站短链接，请使用完整链接" } };
       } else {
@@ -199,11 +422,10 @@ async function handleRequest(req: Request): Promise<Response> {
     }
 
     if (result) {
-      // result already set above (error case)
+      // result already set
     } else if (BILIBILI_SPACE_RE.test(resolvedUrl)) {
       result = await parseBilibili(BILIBILI_SPACE_RE.exec(resolvedUrl)![1]);
     } else if (BILIBILI_DOMAIN_RE.test(resolvedUrl) && !BILIBILI_SPACE_RE.test(resolvedUrl)) {
-      // It's a bilibili.com link but not a space page (e.g. video page from short link)
       result = { success: false, error: { code: "UNKNOWN_PLATFORM", message: "请粘贴 B站 个人空间链接（space.bilibili.com/数字ID），而非视频或文章链接" } };
     } else if (
       YOUTUBE_HANDLE_RE.test(resolvedUrl) ||
@@ -211,8 +433,21 @@ async function handleRequest(req: Request): Promise<Response> {
       YOUTUBE_C_RE.test(resolvedUrl)
     ) {
       result = await parseYoutube(resolvedUrl);
+    } else if (resolvedUrl.includes("zhuanlan.zhihu.com/p/")) {
+      result = { success: false, error: { code: "INVALID_URL", message: "暂不支持添加知乎单篇文章为监控目标，请粘贴博主主页或专栏主页链接" } };
+    } else if (
+      ZHIHU_PEOPLE_RE.test(resolvedUrl) ||
+      ZHIHU_COLUMN_RE.test(resolvedUrl) ||
+      ZHIHU_COLUMN_ALT_RE.test(resolvedUrl) ||
+      ZHIHU_COLUMN_C_RE.test(resolvedUrl)
+    ) {
+      result = await parseZhihu(resolvedUrl);
+    } else if (DOUYIN_SHORT_RE.test(resolvedUrl) || DOUYIN_USER_RE.test(resolvedUrl)) {
+      result = await parseDouyin(resolvedUrl);
+    } else if (XIAOHONGSHU_SHORT_RE.test(resolvedUrl) || XIAOHONGSHU_USER_RE.test(resolvedUrl)) {
+      result = await parseXiaohongshu(resolvedUrl);
     } else {
-      result = { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法识别该平台，目前支持 B站 / YouTube" } };
+      result = { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法识别该平台，目前支持 B站 / YouTube / 知乎 / 抖音 / 小红书" } };
     }
   } catch (err) {
     console.error("parse-url internal error:", err);

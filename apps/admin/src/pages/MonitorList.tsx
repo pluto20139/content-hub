@@ -16,6 +16,7 @@ interface Monitor {
   fail_count: number;
   status: "normal" | "cookie_expired" | "rate_limited";
   created_at: string;
+  native_type?: string | null;
 }
 
 const STATUS_FILTERS = [
@@ -150,7 +151,13 @@ export default function MonitorList() {
         return;
       }
 
-      const { platform, native_id, display_name } = json.data;
+      const { platform, native_id, display_name, native_type } = json.data;
+
+      if (platform === "zhihu" && !native_type) {
+        setAddError("知乎链接解析类型不能为空（必须是用户主页或专栏）");
+        setAdding(false);
+        return;
+      }
 
       // POST to monitors
       const { error: postErr } = await supabase.from("monitors").insert({
@@ -163,6 +170,7 @@ export default function MonitorList() {
         status: "normal",
         fail_count: 0,
         last_content_at: new Date().toISOString(),
+        native_type,
       });
 
       if (postErr) {
@@ -345,7 +353,7 @@ export default function MonitorList() {
             type="url"
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
-            placeholder="粘贴 B站/YouTube 博主主页链接..."
+            placeholder="粘贴 B站/YouTube/知乎/抖音/小红书博主主页链接..."
             className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             onKeyDown={(e) => e.key === "Enter" && addMonitor()}
           />
@@ -422,7 +430,7 @@ export default function MonitorList() {
 
       {/* Platform filter */}
       <div className="flex gap-2 mb-4">
-        {["all", "bilibili", "youtube"].map((p) => (
+        {["all", "bilibili", "youtube", "zhihu", "douyin", "xiaohongshu"].map((p) => (
           <button
             key={p}
             onClick={() => setPlatformFilter(p)}
@@ -453,6 +461,12 @@ export default function MonitorList() {
               >
                 {PLATFORMS[m.platform]?.name ?? m.platform}
               </span>
+
+              {m.platform === "zhihu" && m.native_type && (
+                <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600 font-medium shrink-0">
+                  {m.native_type === "people" ? "个人主页" : "专栏"}
+                </span>
+              )}
 
               {/* Display name (inline edit) */}
               <EditableName

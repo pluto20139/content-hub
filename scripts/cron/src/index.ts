@@ -13,9 +13,36 @@ import {
 import { sendAlert } from "./lib/alert.js";
 import { BilibiliAdapter } from "./adapters/bilibili.js";
 import { YoutubeAdapter } from "./adapters/youtube.js";
+import { ZhihuAdapter } from "./adapters/zhihu.js";
+import { DouyinAdapter } from "./adapters/douyin.js";
+import { XiaohongshuAdapter } from "./adapters/xiaohongshu.js";
 import type { Monitor, CronResult, MonitorStatus, PlatformAdapter, PlatformResult } from "./adapters/types.js";
 
 const RUN_ID = `run-${Date.now()}`;
+
+async function isPlatformPaused(platform: string): Promise<boolean> {
+  try {
+    const { supabase } = await import("./lib/supabase.js");
+    const { data } = await supabase
+      .from("platform_configs")
+      .select("config_value")
+      .eq("platform", platform)
+      .eq("config_key", "platform_status")
+      .maybeSingle();
+
+    if (data?.config_value?.startsWith("paused:until=")) {
+      const untilStr = data.config_value.replace("paused:until=", "");
+      const until = new Date(untilStr);
+      if (until > new Date()) {
+        console.log(`[CRON] Platform ${platform} is paused until ${until.toISOString()}`);
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
 
 function createAdapter(platform: string): PlatformAdapter | null {
   switch (platform) {
@@ -23,6 +50,12 @@ function createAdapter(platform: string): PlatformAdapter | null {
       return new BilibiliAdapter();
     case "youtube":
       return new YoutubeAdapter();
+    case "zhihu":
+      return new ZhihuAdapter();
+    case "douyin":
+      return new DouyinAdapter();
+    case "xiaohongshu":
+      return new XiaohongshuAdapter();
     default:
       return null;
   }
@@ -62,6 +95,12 @@ async function processPlatformGroup(
   let successCount = 0;
   let failCount = 0;
   let newContentCount = 0;
+
+  const paused = await isPlatformPaused(adapter.platform);
+  if (paused) {
+    console.log(`[CRON] Platform ${adapter.platform} is paused, skipping group`);
+    return { successCount, failCount, newContentCount };
+  }
 
   const result: PlatformResult = await adapter.fetchAll(monitors);
 
@@ -208,6 +247,24 @@ export async function run(): Promise<CronResult> {
       platformGroups.push({ monitors: bilibiliMonitors, adapter: createAdapter("bilibili") });
     }
 
+    // 知乎 group
+    const zhihuMonitors = others.filter((m) => m.platform === "zhihu");
+    if (zhihuMonitors.length > 0) {
+      platformGroups.push({ monitors: zhihuMonitors, adapter: createAdapter("zhihu") });
+    }
+
+    // 抖音 group
+    const douyinMonitors = others.filter((m) => m.platform === "douyin");
+    if (douyinMonitors.length > 0) {
+      platformGroups.push({ monitors: douyinMonitors, adapter: createAdapter("douyin") });
+    }
+
+    // 小红书 group
+    const xiaohongshuMonitors = others.filter((m) => m.platform === "xiaohongshu");
+    if (xiaohongshuMonitors.length > 0) {
+      platformGroups.push({ monitors: xiaohongshuMonitors, adapter: createAdapter("xiaohongshu") });
+    }
+
     // YouTube group
     if (youtube.length > 0) {
       platformGroups.push({ monitors: youtube, adapter: createAdapter("youtube") });
@@ -254,9 +311,9 @@ export async function run(): Promise<CronResult> {
 
     return { totalMonitors, successCount, failCount, newContentCount, duration };
   } finally {
-    // Step 6: Release lock (always)
+    // Step 6: Release lock (always with ownership verification)
     try {
-      await releaseLock();
+      await releaseLock(RUN_ID);
     } catch (err) {
       console.error("[CRON] Failed to release lock:", err);
     }

@@ -1,4 +1,4 @@
-export type Platform = "bilibili" | "youtube";
+export type Platform = "bilibili" | "youtube" | "zhihu" | "douyin" | "xiaohongshu";
 export type MonitorStatus = "normal" | "cookie_expired" | "rate_limited";
 export type ContentType = "video" | "article" | "question" | "answer" | "post";
 
@@ -15,6 +15,7 @@ export interface Monitor {
   fail_count: number;
   status: MonitorStatus;
   created_at: string;
+  native_type?: string | null;
 }
 
 export interface RawContent {

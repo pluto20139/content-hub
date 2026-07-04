@@ -26,12 +26,12 @@ export async function queryActiveMonitors(): Promise<{
     throw ytError;
   }
 
-  // B站: full set every run
+  // All other platforms: full set every run
   const { data: others, error: otherError } = await supabase
     .from("monitors")
     .select("*")
     .eq("is_active", true)
-    .eq("platform", "bilibili");
+    .neq("platform", "youtube");
 
   if (otherError) {
     console.error("Failed to query other monitors:", otherError.message);

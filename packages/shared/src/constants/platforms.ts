@@ -16,4 +16,12 @@ export const PLATFORMS: Record<string, PlatformInfo> = {
     name: 'YouTube',
     brandColor: '#FF0000',
   },
+  douyin: {
+    name: '抖音',
+    brandColor: '#000000',
+  },
+  xiaohongshu: {
+    name: '小红书',
+    brandColor: '#FF2442',
+  },
 } as const;

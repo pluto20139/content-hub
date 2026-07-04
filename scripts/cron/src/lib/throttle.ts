@@ -15,7 +15,8 @@ export async function withPlatformThrottle<T>(
   platform: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  if (platform !== "bilibili") {
+  const shouldThrottle = ["bilibili", "zhihu", "douyin", "xiaohongshu"].includes(platform);
+  if (!shouldThrottle) {
     return fn();
   }
 

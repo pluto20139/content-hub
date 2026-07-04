@@ -29,11 +29,17 @@ export async function acquireLock(runId: string): Promise<boolean> {
 /**
  * Release the cron row-level lock.
  */
-export async function releaseLock(): Promise<void> {
-  const { error } = await supabase
+export async function releaseLock(runId?: string): Promise<void> {
+  let query = supabase
     .from("cron_locks")
     .update({ locked_at: null, locked_by: null })
     .eq("id", LOCK_ID);
+
+  if (runId) {
+    query = query.eq("locked_by", runId);
+  }
+
+  const { error } = await query;
 
   if (error) {
     console.error("Failed to release lock:", error.message);

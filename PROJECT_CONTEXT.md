@@ -29,7 +29,7 @@
 | `@supabase/supabase-js` | 前端与 Supabase 交互 | 同时用于前端 SPA 和 Cron 脚本 |
 | `@supabase/supabase` (Deno) | Edge Functions 内使用 | Deno 模块导入 |
 | `youtubei.js` 或 googleapis | YouTube Data API v3 | Cron 脚本内调用 |
-| RSSHub `[Phase 2]` | 知乎内容中转 | MVP 不使用。知乎延后至 Phase 2，届时评估是否用 RSSHub 或直连 API（详见 Taskplan.md 附录 A） |
+| RSSHub | 知乎/抖音/小红书内容中转 | 已在 V1.1 中作为新平台抓取的首选方式，支持代理池，生产环境禁止 Mock 数据写入 |
 
 ### 1.3 环境变量清单
 
@@ -42,8 +42,10 @@
 | `VITE_SUPABASE_ANON_KEY` | Vite 编译期注入（本位） | Nginx/静态托管前端请求 Supabase 的 ANON_KEY |
 | `YOUTUBE_API_KEY` | 腾讯云服务器环境变量 + Supabase Secrets | YouTube Data API v3 密钥（双配置，SPEC 5.3 规则 5） |
 | `BILIBILI_COOKIE` | `platform_configs` 表 + Supabase Vault 加密 | B站 Cookie，扫码登录后存入数据库（非环境变量） |
-| `RSSHUB_URL` `[Phase 2]` | 腾讯云服务器环境变量（Phase 2 启用时配置） | RSSHub 实例地址。MVP 不使用 |
-| `RSSHUB_API_KEY` `[Phase 2]` | 腾讯云服务器环境变量（Phase 2 启用时配置） | RSSHub 访问鉴权密钥。MVP 不使用 |
+| `RSSHUB_URL` | 腾讯云服务器环境变量 | RSSHub 实例地址（V1.1 启用） |
+| `DOUYIN_PROXY_LIST` | 数据库/环境配置 | 抖音抓取代理列表 |
+| `XIAOHONGSHU_PROXY_LIST` | 数据库/环境配置 | 小红书抓取代理列表 |
+| `ZHIHU_PROXY_LIST` | 数据库/环境配置 | 知乎抓取代理列表 |
 | `WECOM_WEBHOOK_URL` | 腾讯云服务器环境变量（可选） | 企业微信告警 Webhook |
 
 ---

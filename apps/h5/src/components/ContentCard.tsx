@@ -1,4 +1,5 @@
 import { PLATFORMS, formatRelativeTime, getDeepLink, detectEnvironment } from "@content-hub/shared";
+import { HideButton } from "./HideButton.tsx";
 
 interface Content {
   id: number;
@@ -9,14 +10,11 @@ interface Content {
   cover_url: string | null;
   original_url: string;
   published_at: string;
+  monitor_native_id?: string | null;
 }
 
 function getPlaceholderCover(platform: string): string {
-  const colors: Record<string, string> = {
-    bilibili: "#FB7299",
-    youtube: "#FF0000",
-  };
-  const color = colors[platform] ?? "#999";
+  const color = PLATFORMS[platform]?.brandColor ?? "#999";
   const name = PLATFORMS[platform]?.name ?? "";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" fill="${color}"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="20">${name}</text></svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
@@ -36,7 +34,15 @@ function handleClick(content: Content): void {
   }
 
   // System browser → try Deep Link
-  const deepLink = getDeepLink(content.platform, content.content_type, content.native_id);
+  const deepLink = getDeepLink(
+    content.platform,
+    content.content_type,
+    content.native_id,
+    {
+      monitorNativeId: content.monitor_native_id || undefined,
+      originalUrl: content.original_url,
+    }
+  );
 
   navigator.clipboard.writeText(originalUrl).catch(() => {});
 
@@ -123,23 +129,36 @@ function showFallbackModal(url: string, customMessage?: string): void {
 
 interface Props {
   content: Content;
+  onHide?: (id: number) => void;
+  showHideButton?: boolean;
+  isHiding?: boolean;
 }
 
-export default function ContentCard({ content }: Props) {
+export default function ContentCard({ content, onHide, showHideButton, isHiding }: Props) {
   const info = PLATFORMS[content.platform];
   const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>): void => {
-    e.currentTarget.src = getPlaceholderCover(content.platform);
+    const img = e.currentTarget;
+    if (content.cover_url && !img.src.includes("/functions/v1/image-proxy")) {
+      const proxyUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/image-proxy?url=${encodeURIComponent(content.cover_url)}`;
+      img.src = proxyUrl;
+    } else {
+      img.src = getPlaceholderCover(content.platform);
+    }
   };
 
   return (
     <div
       onClick={() => handleClick(content)}
-      className="flex gap-3 p-3 bg-white rounded-lg shadow-sm cursor-pointer active:bg-gray-50 border border-gray-100"
+      className="relative flex gap-3 p-3 bg-white rounded-lg shadow-sm cursor-pointer active:bg-gray-50 border border-gray-100"
     >
+      {showHideButton && onHide && (
+        <HideButton onHide={() => onHide(content.id)} disabled={isHiding} />
+      )}
       <img
         src={content.cover_url ?? getPlaceholderCover(content.platform)}
         alt={content.title}
         onError={handleImageError}
+        referrerPolicy="no-referrer"
         className="w-20 h-14 rounded object-cover shrink-0 bg-gray-100"
       />
       <div className="flex flex-col flex-1 min-w-0 justify-between">

@@ -16,7 +16,7 @@ serve(async (req) => {
     
     // We want to forward requests to googleapis.com/youtube/v3/...
     // Example: /functions/v1/youtube-proxy/channels?part=... -> https://www.googleapis.com/youtube/v3/channels?part=...
-    const cleanPath = url.pathname.replace(/^\/youtube-proxy/, "");
+    const cleanPath = url.pathname.split("/youtube-proxy")[1] || "";
     
     const targetUrl = new URL(`https://www.googleapis.com/youtube/v3${cleanPath}`);
     targetUrl.search = url.search;

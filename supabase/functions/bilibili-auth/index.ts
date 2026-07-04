@@ -170,33 +170,44 @@ async function handlePoll(qrcodeKey: string): Promise<Response> {
 // ── Main handler ──────────────────────────────────────
 
 async function handleRequest(req: Request): Promise<Response> {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: corsHeaders });
-  }
-
-  if (req.method !== "POST") {
-    return json({ success: false, error: { code: "INTERNAL_ERROR", message: "仅支持 POST 请求" } }, 405);
-  }
-
-  let body: AuthRequest;
   try {
-    body = await req.json();
-  } catch {
-    return json({ success: false, error: { code: "INTERNAL_ERROR", message: "请求体格式无效" } }, 400);
-  }
-
-  if (body.action === "qrcode") {
-    return handleQrcode();
-  }
-
-  if (body.action === "poll") {
-    if (!body.qrcode_key) {
-      return json({ success: false, error: { code: "INTERNAL_ERROR", message: "缺少 qrcode_key 参数" } }, 400);
+    if (req.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
     }
-    return handlePoll(body.qrcode_key);
-  }
 
-  return json({ success: false, error: { code: "INTERNAL_ERROR", message: "无效的 action，仅支持 qrcode / poll" } }, 400);
+    if (req.method !== "POST") {
+      return json({ success: false, error: { code: "INTERNAL_ERROR", message: "仅支持 POST 请求" } }, 405);
+    }
+
+    let body: AuthRequest;
+    try {
+      body = await req.json();
+    } catch {
+      return json({ success: false, error: { code: "INTERNAL_ERROR", message: "请求体格式无效" } }, 400);
+    }
+
+    if (body.action === "qrcode") {
+      return handleQrcode();
+    }
+
+    if (body.action === "poll") {
+      if (!body.qrcode_key) {
+        return json({ success: false, error: { code: "INTERNAL_ERROR", message: "缺少 qrcode_key 参数" } }, 400);
+      }
+      return handlePoll(body.qrcode_key);
+    }
+
+    return json({ success: false, error: { code: "INTERNAL_ERROR", message: "无效的 action，仅支持 qrcode / poll" } }, 400);
+  } catch (err) {
+    return json({
+      success: false,
+      error: {
+        code: "UNCAUGHT_EXCEPTION",
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined
+      }
+    }, 500);
+  }
 }
 
 Deno.serve(handleRequest);

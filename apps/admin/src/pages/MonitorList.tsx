@@ -353,7 +353,7 @@ export default function MonitorList() {
             type="url"
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
-            placeholder="粘贴 B站/YouTube/知乎/抖音/小红书博主主页链接..."
+            placeholder="粘贴博主主页链接：B站(space.bilibili.com/xxx)、YouTube(@xxx)、知乎(zhihu.com/people/xxx)、抖音(v.douyin.com/xxx 或 douyin.com/user/xxx)、小红书(xhslink.com/xxx 或 xiaohongshu.com/user/profile/xxx)"
             className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             onKeyDown={(e) => e.key === "Enter" && addMonitor()}
           />

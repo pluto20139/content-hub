@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
 
     const headers = new Headers();
     headers.set("Content-Type", contentType);
-    headers.set("Cache-Control", "public, max-age=3600"); // Cache for 1 hour
+    headers.set("Cache-Control", "public, max-age=86400"); // Cache for 24 hours (86400 seconds)
 
     // Apply CORS headers
     for (const [key, value] of Object.entries(corsHeaders)) {

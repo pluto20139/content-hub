@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import ContentCard from "../components/ContentCard";
+import { getCached, setCached } from "../lib/cache";
+import { SkeletonCard } from "../components/SkeletonCard";
 
 interface Content {
   id: number;
@@ -20,6 +22,9 @@ interface Props {
   platform: string | null;
 }
 
+// Memory cache object to preserve tab switching states instantly
+const memoryCache: Record<string, { contents: Content[]; hasMore: boolean }> = {};
+
 export default function Feed({ platform }: Props) {
   const [contents, setContents] = useState<Content[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +34,12 @@ export default function Feed({ platform }: Props) {
   const [hidingIds, setHidingIds] = useState<Set<number>>(new Set());
   const observerRef = useRef<HTMLDivElement | null>(null);
 
+  // Sync ref to avoid rebuild of fetchPage / IntersectionObserver dependencies
+  const contentsRef = useRef<Content[]>([]);
+  useEffect(() => {
+    contentsRef.current = contents;
+  }, [contents]);
+
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
@@ -36,7 +47,11 @@ export default function Feed({ platform }: Props) {
 
   const fetchPage = useCallback(
     async (offset: number): Promise<void> => {
-      setLoading(true);
+      // If we are reloading the first page and already have cached data showing, we refresh silently
+      const isSilent = offset === 0 && contentsRef.current.length > 0;
+      if (!isSilent) {
+        setLoading(true);
+      }
       setError(null);
       const isHiddenTab = platform === "hidden";
       let query = supabase
@@ -73,6 +88,10 @@ export default function Feed({ platform }: Props) {
 
       if (offset === 0) {
         setContents(items);
+        // Write to caches
+        const cacheKey = platform ?? "all";
+        memoryCache[cacheKey] = { contents: items, hasMore: items.length === PAGE_SIZE };
+        setCached(`feed:${cacheKey}:offset:0`, items);
       } else {
         setContents((prev) => [...prev, ...items]);
       }
@@ -82,29 +101,41 @@ export default function Feed({ platform }: Props) {
     [platform],
   );
 
+  // Tab switching cache restore and query initialization
   useEffect(() => {
-    fetchPage(0);
-  }, [fetchPage]);
+    const cacheKey = platform ?? "all";
+    const cached = memoryCache[cacheKey]?.contents ?? getCached<Content[]>(`feed:${cacheKey}:offset:0`) ?? [];
+    setContents(cached);
+    setHasMore(memoryCache[cacheKey]?.hasMore ?? true);
+    
+    // Show loading skeleton only when no cache is available
+    setLoading(cached.length === 0);
+    setError(null);
 
-  // Infinite scroll observer
+    fetchPage(0);
+  }, [platform, fetchPage]);
+
+  // Infinite scroll observer - dependencies minimized (doesn't depend on contents.length)
   useEffect(() => {
     if (!observerRef.current) return;
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loading && !error) {
-          fetchPage(contents.length);
+          fetchPage(contentsRef.current.length);
         }
       },
       { rootMargin: "200px" },
     );
     observer.observe(observerRef.current);
     return () => observer.disconnect();
-  }, [hasMore, loading, error, contents.length, fetchPage]);
+  }, [hasMore, loading, error, fetchPage]);
 
   if (loading && contents.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-400 text-sm">
-        加载中...
+      <div className="flex flex-col gap-2 px-3 py-3">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <SkeletonCard key={i} />
+        ))}
       </div>
     );
   }
@@ -115,7 +146,7 @@ export default function Feed({ platform }: Props) {
         <span className="text-red-500">{error}</span>
         <button
           onClick={() => fetchPage(0)}
-          className="px-4 py-1.5 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600"
+          className="px-4 py-1.5 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 cursor-pointer"
         >
           点击重试
         </button>
@@ -158,6 +189,12 @@ export default function Feed({ platform }: Props) {
         next.delete(id);
         return next;
       });
+
+      // Update memoryCache and localStorage on manual hide
+      const cacheKey = platform ?? "all";
+      const updated = originalContents.filter((c) => c.id !== id);
+      memoryCache[cacheKey] = { contents: updated, hasMore };
+      setCached(`feed:${cacheKey}:offset:0`, updated);
     } catch (err: any) {
       console.error("Failed to hide content:", err.message);
       // 2. Rollback & Toast
@@ -194,7 +231,7 @@ export default function Feed({ platform }: Props) {
         <div className="text-center py-4">
           <button
             onClick={() => fetchPage(contents.length)}
-            className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs font-medium"
+            className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs font-medium cursor-pointer"
           >
             加载失败，点击重试
           </button>

@@ -30,25 +30,52 @@ const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
 // ── Generic redirect resolver & DB Cache ─────────────
 
-/** Resolve short links by following the redirect with a mobile UA. */
-async function resolveRedirect(shortUrl: string): Promise<string | null> {
+interface ResolveResult {
+  url?: string;
+  body?: string;
+  status: number;
+}
+
+/** Resolve short links. Try HEAD first, then GET if the server doesn't cooperate. */
+async function resolveLink(shortUrl: string): Promise<ResolveResult | null> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+  };
+
   try {
-    const res = await fetch(shortUrl, {
+    // 1. Try HEAD first (cheap)
+    const headRes = await fetch(shortUrl, {
       method: "HEAD",
       redirect: "manual",
-      headers: {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-      },
+      headers,
       signal: controller.signal,
     });
-    clearTimeout(timeoutId);
-    return res.headers.get("location") ?? null;
+
+    const headLocation = headRes.headers.get("location");
+    if (headLocation && [301, 302, 303, 307, 308].includes(headRes.status)) {
+      return { url: headLocation, status: headRes.status };
+    }
+
+    // 2. HEAD didn't yield a redirect -> fetch the page body and follow redirects
+    const getRes = await fetch(shortUrl, {
+      method: "GET",
+      redirect: "follow",
+      headers,
+      signal: controller.signal,
+    });
+
+    const body = await getRes.text();
+    return { url: getRes.url, body, status: getRes.status };
   } catch (err) {
-    clearTimeout(timeoutId);
-    console.error(`Failed to resolve redirect for ${shortUrl}:`, err);
+    console.error(`Failed to resolve link for ${shortUrl}:`, err);
     return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -271,8 +298,27 @@ async function parseZhihu(url: string): Promise<ParseResponse> {
 const DOUYIN_SHORT_RE = /v\.douyin\.com\//;
 const DOUYIN_USER_RE = /douyin\.com\/user\/([^/?#]+)/;
 
+function extractDouyinSecUid(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const secUid = parsed.searchParams.get("sec_uid");
+    if (secUid) return secUid;
+
+    const pathMatch = parsed.pathname.match(/\/user\/([^/?#]+)/);
+    if (pathMatch) return pathMatch[1];
+
+    // 兼容 iesdouyin.com/share/user/... 路径形式
+    const shareMatch = parsed.pathname.match(/\/share\/user\/([^/?#]+)/);
+    if (shareMatch) return shareMatch[1];
+  } catch {
+    // invalid URL
+  }
+  return null;
+}
+
 async function parseDouyin(url: string): Promise<ParseResponse> {
   let resolvedUrl = url;
+
   if (DOUYIN_SHORT_RE.test(url)) {
     const cached = await getCachedLink(url);
     if (cached) {
@@ -282,26 +328,25 @@ async function parseDouyin(url: string): Promise<ParseResponse> {
           platform: "douyin",
           native_id: cached.resolved_id,
           display_name: `抖音用户_${cached.resolved_id.slice(0, 8)}`,
-          native_type: cached.resolved_type,
+          native_type: null,
         },
       };
     }
 
-    const redirect = await resolveRedirect(url);
-    if (!redirect) {
+    const resolved = await resolveLink(url);
+    if (!resolved || !resolved.url) {
       return { success: false, error: { code: "INVALID_URL", message: "无法解析该抖音短链接，请使用完整链接" } };
     }
-    resolvedUrl = redirect;
+    resolvedUrl = resolved.url;
   }
 
-  const match = DOUYIN_USER_RE.exec(resolvedUrl);
-  if (!match) {
+  const secUid = extractDouyinSecUid(resolvedUrl);
+  if (!secUid) {
     return { success: false, error: { code: "INVALID_URL", message: "请粘贴抖音个人主页链接" } };
   }
 
-  const secUid = match[1];
   if (url !== resolvedUrl) {
-    await cacheLink(url, secUid, "people");
+    await cacheLink(url, secUid, "sec_uid");
   }
 
   return {
@@ -310,7 +355,7 @@ async function parseDouyin(url: string): Promise<ParseResponse> {
       platform: "douyin",
       native_id: secUid,
       display_name: `抖音用户_${secUid.slice(0, 8)}`,
-      native_type: "people",
+      native_type: null,
     },
   };
 }
@@ -320,8 +365,36 @@ async function parseDouyin(url: string): Promise<ParseResponse> {
 const XIAOHONGSHU_SHORT_RE = /(xhslink\.com\/|sns\.xiaohongshu\.com\/t\/)/;
 const XIAOHONGSHU_USER_RE = /xiaohongshu\.com\/user\/profile\/([^/?#]+)/;
 
+function extractXiaohongshuUserId(url: string, body?: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const match = parsed.pathname.match(/\/user\/profile\/([^/?#]+)/);
+    if (match) return match[1];
+  } catch {
+    // invalid URL
+  }
+
+  if (body) {
+    // 常见嵌入方式：window.__INITIAL_STATE__ 中的 userId
+    const patterns = [
+      /"userId":"([a-f0-9]+)"/i,
+      /"userId":"([^"]+)"/,
+      /"user_id":"([a-f0-9]+)"/i,
+      /user\/profile\/([a-f0-9]+)/i,
+    ];
+    for (const re of patterns) {
+      const match = re.exec(body);
+      if (match) return match[1];
+    }
+  }
+
+  return null;
+}
+
 async function parseXiaohongshu(url: string): Promise<ParseResponse> {
   let resolvedUrl = url;
+  let resolvedBody: string | undefined;
+
   if (XIAOHONGSHU_SHORT_RE.test(url)) {
     const cached = await getCachedLink(url);
     if (cached) {
@@ -331,26 +404,36 @@ async function parseXiaohongshu(url: string): Promise<ParseResponse> {
           platform: "xiaohongshu",
           native_id: cached.resolved_id,
           display_name: `小红书用户_${cached.resolved_id.slice(0, 8)}`,
-          native_type: cached.resolved_type,
+          native_type: null,
         },
       };
     }
 
-    const redirect = await resolveRedirect(url);
-    if (!redirect) {
+    const resolved = await resolveLink(url);
+    if (!resolved) {
       return { success: false, error: { code: "INVALID_URL", message: "无法解析该小红书短链接，请使用完整链接" } };
     }
-    resolvedUrl = redirect;
+    if (resolved.status === 404) {
+      return { success: false, error: { code: "INVALID_URL", message: "该短链已失效或不存在，请重新获取" } };
+    }
+
+    resolvedUrl = resolved.url || url;
+    resolvedBody = resolved.body;
   }
 
-  const match = XIAOHONGSHU_USER_RE.exec(resolvedUrl);
-  if (!match) {
-    return { success: false, error: { code: "INVALID_URL", message: "请粘贴小红书个人主页链接" } };
+  const userId = extractXiaohongshuUserId(resolvedUrl, resolvedBody);
+  if (!userId) {
+    return {
+      success: false,
+      error: {
+        code: "INVALID_URL",
+        message: "该短链无法定位到小红书个人主页，请使用完整链接，例如 https://www.xiaohongshu.com/user/profile/xxx",
+      },
+    };
   }
 
-  const userId = match[1];
-  if (url !== resolvedUrl) {
-    await cacheLink(url, userId, "people");
+  if (XIAOHONGSHU_SHORT_RE.test(url)) {
+    await cacheLink(url, userId, "uid");
   }
 
   return {
@@ -359,7 +442,7 @@ async function parseXiaohongshu(url: string): Promise<ParseResponse> {
       platform: "xiaohongshu",
       native_id: userId,
       display_name: `小红书用户_${userId.slice(0, 8)}`,
-      native_type: "people",
+      native_type: null,
     },
   };
 }
@@ -413,11 +496,11 @@ async function handleRequest(req: Request): Promise<Response> {
     let resolvedUrl = url;
     // Resolve B站 short links first using generic redirect resolver
     if (BILIBILI_SHORT_RE.test(url)) {
-      const redirect = await resolveRedirect(url);
-      if (!redirect) {
+      const resolved = await resolveLink(url);
+      if (!resolved || !resolved.url) {
         result = { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法解析 B站短链接，请使用完整链接" } };
       } else {
-        resolvedUrl = redirect;
+        resolvedUrl = resolved.url;
       }
     }
 

@@ -13,6 +13,8 @@ interface Content {
   cover_url: string | null;
   original_url: string;
   published_at: string;
+  summary?: string | null;
+  summary_status?: string | null;
   monitor_native_id?: string | null;
 }
 
@@ -56,7 +58,7 @@ export default function Feed({ platform }: Props) {
       const isHiddenTab = platform === "hidden";
       let query = supabase
         .from("contents")
-        .select("id,platform,native_id,content_type,title,cover_url,original_url,published_at,monitors(native_id)")
+        .select("id,platform,native_id,content_type,title,cover_url,original_url,published_at,summary,summary_status,monitors(native_id)")
         .eq("is_display", isHiddenTab ? false : true)
         .order("published_at", { ascending: false })
         .range(offset, offset + PAGE_SIZE - 1);
@@ -83,6 +85,8 @@ export default function Feed({ platform }: Props) {
         cover_url: item.cover_url,
         original_url: item.original_url,
         published_at: item.published_at,
+        summary: item.summary,
+        summary_status: item.summary_status,
         monitor_native_id: item.monitors?.native_id ?? null,
       })) as Content[];
 

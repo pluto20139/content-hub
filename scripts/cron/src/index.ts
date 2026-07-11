@@ -11,6 +11,7 @@ import {
   loadBilibiliCookie,
 } from "./lib/content-writer.js";
 import { sendAlert } from "./lib/alert.js";
+import { processVideoSummaries } from "./lib/dify.js";
 import { BilibiliAdapter } from "./adapters/bilibili.js";
 import { YoutubeAdapter } from "./adapters/youtube.js";
 import { ZhihuAdapter } from "./adapters/zhihu.js";
@@ -302,6 +303,13 @@ export async function run(): Promise<CronResult> {
         failCount += r.value.failCount;
         newContentCount += r.value.newContentCount;
       }
+    }
+
+    // Call processVideoSummaries to process pending video AI summaries
+    try {
+      await processVideoSummaries();
+    } catch (difyErr: any) {
+      console.error("[CRON] processVideoSummaries failed:", difyErr.message);
     }
 
     const duration = Date.now() - startTime;

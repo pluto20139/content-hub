@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
     // Fallback if DB lookup did not yield monitor info (unlikely in production)
     const monitorIdToUse = monitorNativeId || native_id;
     const cleanMonitorId = monitorIdToUse.replace("people:", "").replace("column:", "");
-    const isColumn = content_type === "article" || monitorNativeType === "column" || monitorIdToUse.startsWith("column:");
+    const isColumn = monitorNativeType === "column" || monitorIdToUse.startsWith("column:");
     const path = isColumn
       ? `/zhihu/zhuanlan/${cleanMonitorId}`
       : `/zhihu/people/activities/${cleanMonitorId}`;

@@ -55,9 +55,6 @@ Deno.serve(async (req) => {
   }
 
   const row = rows[0];
-  if (row.content_type !== "video") {
-    return json({ success: false, error: { code: "NOT_VIDEO", message: "Only video content supports retry" } }, 400);
-  }
 
   const currentStatus = row.summary_status ?? "none";
   if (currentStatus === "pending" || currentStatus === "processing") {

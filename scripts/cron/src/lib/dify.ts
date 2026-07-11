@@ -122,37 +122,84 @@ async function fetchYoutubeContent(videoId: string): Promise<string> {
 }
 
 /**
- * Scan database for videos with summary_status = 'pending' and invoke Dify Workflow API to summarize them.
- * Limits execution to 5 videos per run to prevent timeout issues.
+ * Helper to fetch detailed text of an article/answer/post using article-fetcher Edge Function.
  */
-export async function processVideoSummaries(): Promise<void> {
+async function fetchArticleContent(platform: string, nativeId: string, contentType: string): Promise<string> {
+  const url = `${process.env.SUPABASE_URL}/functions/v1/article-fetcher`;
+  const anonKey = process.env.SUPABASE_ANON_KEY;
+  if (!anonKey) {
+    console.warn("[DIFY] SUPABASE_ANON_KEY is not configured, skipping article content fetch");
+    return "";
+  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout (slightly more than the edge function internal 5s timeout)
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${anonKey}`,
+        apikey: anonKey,
+      },
+      body: JSON.stringify({
+        platform,
+        native_id: nativeId,
+        content_type: contentType,
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Edge Function returned status ${res.status}`);
+    const data = await res.json();
+    return data.content_text || "";
+  } catch (err: any) {
+    console.warn(`[DIFY] Failed to fetch article content for ${platform} ${nativeId}:`, err.message);
+    return "";
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Scan database for contents with summary_status = 'pending' and invoke Dify Workflow API to summarize them.
+ * Supported filters: 'video' | 'all'
+ * Limits execution to 5/10 items per run to prevent timeout issues.
+ */
+export async function processSummaries(filter: "video" | "all" = "all"): Promise<void> {
   if (!DIFY_API_KEY) {
-    console.warn("[DIFY] DIFY_API_KEY is not configured, skipping video summarization");
+    console.warn("[DIFY] DIFY_API_KEY is not configured, skipping summarization");
     return;
   }
 
-  console.log("[DIFY] Scanning for pending video summaries...");
+  const limitCount = filter === "all" ? 10 : 5;
+  console.log(`[DIFY] Scanning for pending ${filter} summaries (Limit: ${limitCount})...`);
 
-  // 1. Fetch pending video contents
-  const { data: videos, error } = await supabase
+  // 1. Fetch pending contents
+  let query = supabase
     .from("contents")
     .select("id,platform,title,original_url,content_type,native_id")
-    .eq("content_type", "video")
-    .eq("summary_status", "pending")
+    .eq("summary_status", "pending");
+
+  if (filter === "video") {
+    query = query.eq("content_type", "video");
+  } else {
+    query = query.in("content_type", ["video", "article", "question", "answer", "post"]);
+  }
+
+  const { data: items, error } = await query
     .order("published_at", { ascending: false })
-    .limit(5);
+    .limit(limitCount);
 
   if (error) {
-    console.error("[DIFY] Failed to fetch pending videos:", error.message);
+    console.error("[DIFY] Failed to fetch pending contents:", error.message);
     return;
   }
 
-  if (!videos || videos.length === 0) {
-    console.log("[DIFY] No pending videos found.");
+  if (!items || items.length === 0) {
+    console.log("[DIFY] No pending contents found.");
     return;
   }
 
-  console.log(`[DIFY] Found ${videos.length} videos to summarize.`);
+  console.log(`[DIFY] Found ${items.length} contents to summarize.`);
 
   // Load B站 cookie once to reuse for the B站 video fetches in this run
   const bilibiliCookie = await loadBilibiliCookie().catch((err) => {
@@ -160,27 +207,31 @@ export async function processVideoSummaries(): Promise<void> {
     return null;
   });
 
-  for (const video of videos) {
-    console.log(`[DIFY] Processing video (Content ID: ${video.id}): ${video.title} (${video.platform})`);
+  for (const item of items) {
+    console.log(`[DIFY] Processing content (Content ID: ${item.id}): ${item.title} (${item.platform}/${item.content_type})`);
 
     // 2. Optimistically update summary_status to 'processing' to avoid concurrency conflicts
     const { error: updateError } = await supabase
       .from("contents")
       .update({ summary_status: "processing" })
-      .eq("id", video.id);
+      .eq("id", item.id);
 
     if (updateError) {
-      console.error(`[DIFY] Failed to mark video (Content ID: ${video.id}) as processing:`, updateError.message);
+      console.error(`[DIFY] Failed to mark content (Content ID: ${item.id}) as processing:`, updateError.message);
       continue;
     }
 
     try {
-      // Step 2.1: Scrape detailed content depending on the platform
+      // Step 2.1: Scrape detailed content depending on the platform and content_type
       let contentText = "";
-      if (video.platform === "bilibili") {
-        contentText = await fetchBilibiliContent(video.native_id, bilibiliCookie);
-      } else if (video.platform === "youtube") {
-        contentText = await fetchYoutubeContent(video.native_id);
+      if (item.content_type === "video") {
+        if (item.platform === "bilibili") {
+          contentText = await fetchBilibiliContent(item.native_id, bilibiliCookie);
+        } else if (item.platform === "youtube") {
+          contentText = await fetchYoutubeContent(item.native_id);
+        }
+      } else {
+        contentText = await fetchArticleContent(item.platform, item.native_id, item.content_type);
       }
 
       // Truncate if content is too long (limit to 20,000 characters to conserve prompt tokens)
@@ -199,10 +250,10 @@ export async function processVideoSummaries(): Promise<void> {
         },
         body: JSON.stringify({
           inputs: {
-            url: video.original_url,
-            title: video.title,
-            platform: video.platform,
-            content_type: video.content_type,
+            url: item.original_url,
+            title: item.title,
+            platform: item.platform,
+            content_type: item.content_type,
             content_text: contentText,
           },
           response_mode: "blocking",
@@ -241,24 +292,29 @@ export async function processVideoSummaries(): Promise<void> {
           summary_at: new Date().toISOString(),
           summary_duration_ms: durationMs,
         })
-        .eq("id", video.id);
+        .eq("id", item.id);
 
       if (successError) {
         throw new Error(`DB write failed: ${successError.message}`);
       }
 
-      console.log(`[DIFY] Video (Content ID: ${video.id}) successfully summarized. (Duration: ${durationMs}ms)`);
+      console.log(`[DIFY] Content (Content ID: ${item.id}) successfully summarized. (Duration: ${durationMs}ms)`);
     } catch (err: any) {
-      console.error(`[DIFY] Video (Content ID: ${video.id}) summarization failed:`, err.message);
+      console.error(`[DIFY] Content (Content ID: ${item.id}) summarization failed:`, err.message);
 
       // Revert status to failed so that it can be retried later
       const { error: revertError } = await supabase
         .from("contents")
         .update({ summary_status: "failed" })
-        .eq("id", video.id);
+        .eq("id", item.id);
       if (revertError) {
-        console.error(`[DIFY] Failed to revert video (Content ID: ${video.id}) status to failed:`, revertError.message);
+        console.error(`[DIFY] Failed to revert content (Content ID: ${item.id}) status to failed:`, revertError.message);
       }
     }
   }
+}
+
+// Keep backward compatibility wrapper
+export async function processVideoSummaries(): Promise<void> {
+  return processSummaries("video");
 }

@@ -1,0 +1,286 @@
+app:
+  description: '多平台中枢 1.2.1 版本：多平台内容自动总结工作流。解析 B站/YouTube 视频链接或各类图文正文，调用 LLM 生成要点总结。'
+  icon: 🤖
+  icon_background: '#FFEAD5'
+  mode: workflow
+  name: Content-Summarizer-Workflow
+version: 0.1.5
+workflow:
+  features:
+    file_upload:
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - remote_url
+        - local_file
+  graph:
+    edges:
+    - id: edge-start-code
+      source: '1720612345678'
+      sourceHandle: source
+      target: '1720612345679'
+      targetHandle: target
+    - id: edge-code-conditional
+      source: '1720612345679'
+      sourceHandle: source
+      target: '1720612345680'
+      targetHandle: target
+    - id: edge-cond-bilibili
+      source: '1720612345680'
+      sourceHandle: 'cond-bilibili'
+      target: '1720612345681'
+      targetHandle: target
+    - id: edge-cond-youtube
+      source: '1720612345680'
+      sourceHandle: 'cond-youtube'
+      target: '1720612345682'
+      targetHandle: target
+    - id: edge-cond-fallback
+      source: '1720612345680'
+      sourceHandle: 'cond-fallback'
+      target: '1720612345683'
+      targetHandle: target
+    - id: edge-cond-zhihu
+      source: '1720612345680'
+      sourceHandle: 'cond-zhihu'
+      target: '1720612345686'
+      targetHandle: target
+    - id: edge-cond-bilibili-article
+      source: '1720612345680'
+      sourceHandle: 'cond-bilibili-article'
+      target: '1720612345687'
+      targetHandle: target
+    - id: edge-bilibili-llm
+      source: '1720612345681'
+      sourceHandle: source
+      target: '1720612345684'
+      targetHandle: target
+    - id: edge-youtube-llm
+      source: '1720612345682'
+      sourceHandle: source
+      target: '1720612345684'
+      targetHandle: target
+    - id: edge-fallback-llm
+      source: '1720612345683'
+      sourceHandle: source
+      target: '1720612345684'
+      targetHandle: target
+    - id: edge-zhihu-llm
+      source: '1720612345686'
+      sourceHandle: source
+      target: '1720612345684'
+      targetHandle: target
+    - id: edge-bilibili-article-llm
+      source: '1720612345687'
+      sourceHandle: source
+      target: '1720612345684'
+      targetHandle: target
+    - id: edge-llm-end
+      source: '1720612345684'
+      sourceHandle: source
+      target: '1720612345685'
+      targetHandle: target
+    nodes:
+    - id: '1720612345678'
+      title: 开始
+      type: start
+      data:
+        variables:
+        - label: 内容标题 (title)
+          max_length: 256
+          options: []
+          required: true
+          type: text-input
+          variable: title
+        - label: 内容链接 (url)
+          max_length: 512
+          options: []
+          required: true
+          type: text-input
+          variable: url
+        - label: 来源平台 (platform)
+          max_length: 256
+          options: []
+          required: true
+          type: text-input
+          variable: platform
+        - label: 内容类型 (content_type)
+          max_length: 256
+          options: []
+          required: true
+          type: text-input
+          variable: content_type
+        - label: 详细正文或字幕 (content_text)
+          max_length: 65535
+          options: []
+          required: false
+          type: paragraph
+          variable: content_text
+    - id: '1720612345679'
+      title: 链接解析器
+      type: code
+      data:
+        code: |
+          function main({url, platform}) {
+              let native_id = "";
+              if (platform === "bilibili") {
+                  let match = url.match(/BV[a-zA-Z0-9]+/);
+                  if (match) native_id = match[0];
+              } else if (platform === "youtube") {
+                  let match = url.match(/(?:v=|\/embed\/|\/watch\?v=|\/v\/|youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+                  if (match) native_id = match[1];
+              }
+              return { native_id: native_id || "" };
+          }
+        code_language: javascript
+        variables:
+        - name: url
+          valueSelector:
+          - '1720612345678'
+          - url
+        - name: platform
+          valueSelector:
+          - '1720612345678'
+          - platform
+        outputs:
+          native_id:
+            type: string
+    - id: '1720612345680'
+      title: 平台分支路由
+      type: if-else
+      data:
+        conditions:
+        - id: cond-bilibili
+          logical_operator: and
+          rules:
+          - condition: equals
+            variableSelector:
+            - '1720612345678'
+            - platform
+            value: bilibili
+          - condition: equals
+            variableSelector:
+            - '1720612345678'
+            - content_type
+            value: video
+        - id: cond-youtube
+          logical_operator: and
+          rules:
+          - condition: equals
+            variableSelector:
+            - '1720612345678'
+            - platform
+            value: youtube
+          - condition: equals
+            variableSelector:
+            - '1720612345678'
+            - content_type
+            value: video
+        - id: cond-zhihu
+          logical_operator: and
+          rules:
+          - condition: equals
+            variableSelector:
+            - '1720612345678'
+            - platform
+            value: zhihu
+        - id: cond-bilibili-article
+          logical_operator: and
+          rules:
+          - condition: equals
+            variableSelector:
+            - '1720612345678'
+            - platform
+            value: bilibili
+          - condition: equals
+            variableSelector:
+            - '1720612345678'
+            - content_type
+            value: article
+    - id: '1720612345681'
+      title: 抓取 B站 简介
+      type: http
+      data:
+        method: get
+        url: https://api.bilibili.com/x/web-interface/view?bvid={{#1720612345679.native_id#}}
+        headers: 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        body:
+          type: none
+    - id: '1720612345682'
+      title: 抓取 YouTube 信息
+      type: http
+      data:
+        method: get
+        url: https://www.youtube.com/oembed?url={{#1720612345678.url#}}&format=json
+        headers: ''
+        body:
+          type: none
+    - id: '1720612345683'
+      title: 兜底路径
+      type: template
+      data:
+        template: '无法抓取该平台的正文，仅依靠标题进行总结。'
+        variables: []
+    - id: '1720612345686'
+      title: 知乎文章状态
+      type: template
+      data:
+        template: '已成功获取并传入知乎图文正文。'
+        variables: []
+    - id: '1720612345687'
+      title: B站专栏状态
+      type: template
+      data:
+        template: '已成功获取并传入B站专栏正文。'
+        variables: []
+    - id: '1720612345684'
+      title: 总结 LLM
+      type: llm
+      data:
+        model:
+          provider: openai
+          name: gpt-4o-mini
+          mode: chat
+          completion_params:
+            temperature: 0.3
+            max_tokens: 500
+        prompt_template:
+        - role: system
+          text: |
+            你是一个多平台内容总结助手。用户会给你一条内容信息，包括标题、平台、内容类型以及内容的描述、正文或字幕文本。
+
+            请根据这些信息，用简洁的中文总结这条内容的核心要点：
+
+            1. 总结长度控制在 50-150 字之间。
+            2. 提取关键信息：主题、主要观点、结论。
+            3. 客观陈述，切忌添加主观臆断与多余词汇。
+            4. 如果直接传入的描述/正文/字幕、抓取内容详情等均为空，仅基于标题进行推断总结，并在开头显著标注"[基于标题推断]"。
+            5. 不要使用"该视频"、"本文"、"UP主介绍说"等冗余前缀。
+        - role: user
+          text: |
+            标题：{{#1720612345678.title#}}
+            平台：{{#1720612345678.platform#}}
+            内容类型：{{#1720612345678.content_type#}}
+            链接：{{#1720612345678.url#}}
+
+            直接传入的描述/正文/字幕：
+            {{#1720612345678.content_text#}}
+
+            抓取内容详情：
+            B站抓取响应：{{#1720612345681.body#}}
+            YouTube抓取响应：{{#1720612345682.body#}}
+            其他兜底说明：{{#1720612345683.output#}}
+            知乎正文状态：{{#1720612345686.output#}}
+            B站专栏状态：{{#1720612345687.output#}}
+
+            请开始总结：
+    - id: '1720612345685'
+      title: 结束
+      type: end
+      data:
+        outputs:
+        - name: summary
+          valueSelector:
+          - '1720612345684'
+          - text

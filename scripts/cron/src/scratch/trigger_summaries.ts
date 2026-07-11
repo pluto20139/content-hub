@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase.js";
-import { processVideoSummaries } from "../lib/dify.js";
+import { processSummaries } from "../lib/dify.js";
 
 const isAllMode = process.argv.includes("--all");
 
@@ -51,8 +51,8 @@ async function runTestSummaries() {
     return;
   }
 
-  console.log("Running processVideoSummaries()...");
-  await processVideoSummaries();
+  console.log("Running processSummaries('all')...");
+  await processSummaries("all");
 
   console.log("\nQuerying results...");
   const { data: results, error: resErr } = await supabase
@@ -75,25 +75,25 @@ async function runTestSummaries() {
 }
 
 async function runAllSummaries() {
-  const MAX_BATCHES = 100; // safety: 100 batches × 5 = 500 videos max
+  const MAX_BATCHES = 100; // safety: 100 batches × 5 = 500 contents max
   const startTime = Date.now();
 
-  console.log("=== ALL MODE: Regenerate summaries for all videos ===");
+  console.log("=== ALL MODE: Regenerate summaries for all contents ===");
 
-  // 1. Count total videos
+  // 1. Count total contents
   const { count: total, error: cntErr } = await supabase
     .from("contents")
     .select("id", { count: "exact", head: true })
-    .eq("content_type", "video");
+    .in("content_type", ["video", "article", "question", "answer", "post"]);
 
   if (cntErr) {
-    console.error("Failed to count videos:", cntErr.message);
+    console.error("Failed to count contents:", cntErr.message);
     return;
   }
-  console.log(`Total videos in DB: ${total}`);
+  console.log(`Total contents in DB: ${total}`);
 
-  // 2. Reset all success/failed videos to pending
-  console.log("Resetting all (success|failed) videos to pending...");
+  // 2. Reset all success/failed contents to pending
+  console.log("Resetting all (success|failed) contents to pending...");
   const { error: resetErr, count: resetCount } = await supabase
     .from("contents")
     .update({
@@ -102,22 +102,22 @@ async function runAllSummaries() {
       summary_at: null,
       summary_duration_ms: null,
     }, { count: "exact" })
-    .eq("content_type", "video")
+    .in("content_type", ["video", "article", "question", "answer", "post"])
     .in("summary_status", ["success", "failed"]);
 
   if (resetErr) {
     console.error("Failed to reset:", resetErr.message);
     return;
   }
-  console.log(`Reset ${resetCount ?? "?"} videos to pending.`);
+  console.log(`Reset ${resetCount ?? "?"} contents to pending.`);
 
-  // 3. Loop processVideoSummaries() until no more pending
+  // 3. Loop processSummaries('all') until no more pending
   let batchNum = 0;
   while (true) {
     const { count: pending, error: pendErr } = await supabase
       .from("contents")
       .select("id", { count: "exact", head: true })
-      .eq("content_type", "video")
+      .in("content_type", ["video", "article", "question", "answer", "post"])
       .eq("summary_status", "pending");
 
     if (pendErr) {
@@ -125,14 +125,14 @@ async function runAllSummaries() {
       return;
     }
     if (!pending || pending === 0) {
-      console.log("No more pending videos. Done.");
+      console.log("No more pending contents. Done.");
       break;
     }
 
     batchNum++;
     console.log(`\n--- Batch ${batchNum}: ${pending} pending ---`);
     try {
-      await processVideoSummaries();
+      await processSummaries("all");
     } catch (err: any) {
       console.error(`Batch ${batchNum} threw error:`, err.message);
       // continue to next batch
@@ -148,7 +148,7 @@ async function runAllSummaries() {
   const { data: results, error: resErr } = await supabase
     .from("contents")
     .select("id,platform,title,summary_status,summary_at,summary_duration_ms")
-    .eq("content_type", "video")
+    .in("content_type", ["video", "article", "question", "answer", "post"])
     .order("published_at", { ascending: false });
 
   if (resErr) {
@@ -165,7 +165,7 @@ async function runAllSummaries() {
   console.log(`Total elapsed: ${Date.now() - startTime}ms`);
   console.log(`Batches run: ${batchNum}`);
   console.log(`By status:`, byStatus);
-  console.log(`\nPer-video results:`);
+  console.log(`\nPer-content results:`);
   for (const r of results || []) {
     console.log(`- [${r.platform.toUpperCase()}] ID ${r.id}: ${r.summary_status} (${r.summary_duration_ms ?? "-"}ms) | ${r.title}`);
   }

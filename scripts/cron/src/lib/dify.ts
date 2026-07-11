@@ -37,7 +37,7 @@ export async function processVideoSummaries(): Promise<void> {
   console.log(`[DIFY] Found ${videos.length} videos to summarize.`);
 
   for (const video of videos) {
-    console.log(`[DIFY] Processing video ${video.id}: ${video.title} (${video.platform})`);
+    console.log(`[DIFY] Processing video (Content ID: ${video.id}): ${video.title} (${video.platform})`);
 
     // 2. Optimistically update summary_status to 'processing' to avoid concurrency conflicts
     const { error: updateError } = await supabase
@@ -46,7 +46,7 @@ export async function processVideoSummaries(): Promise<void> {
       .eq("id", video.id);
 
     if (updateError) {
-      console.error(`[DIFY] Failed to mark video ${video.id} as processing:`, updateError.message);
+      console.error(`[DIFY] Failed to mark video (Content ID: ${video.id}) as processing:`, updateError.message);
       continue;
     }
 
@@ -104,9 +104,9 @@ export async function processVideoSummaries(): Promise<void> {
         throw new Error(`DB write failed: ${successError.message}`);
       }
 
-      console.log(`[DIFY] Video ${video.id} successfully summarized.`);
+      console.log(`[DIFY] Video (Content ID: ${video.id}) successfully summarized.`);
     } catch (err: any) {
-      console.error(`[DIFY] Video ${video.id} summarization failed:`, err.message);
+      console.error(`[DIFY] Video (Content ID: ${video.id}) summarization failed:`, err.message);
 
       // Revert status to failed so that it can be retried later
       const { error: revertError } = await supabase
@@ -114,7 +114,7 @@ export async function processVideoSummaries(): Promise<void> {
         .update({ summary_status: "failed" })
         .eq("id", video.id);
       if (revertError) {
-        console.error(`[DIFY] Failed to revert video ${video.id} status to failed:`, revertError.message);
+        console.error(`[DIFY] Failed to revert video (Content ID: ${video.id}) status to failed:`, revertError.message);
       }
     }
   }

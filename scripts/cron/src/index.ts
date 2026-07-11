@@ -132,7 +132,7 @@ async function processPlatformGroup(
       // Pre-write verify: monitor still exists and active
       const active = await verifyMonitorActive(monitor.id);
       if (!active) {
-        console.log(`[CRON] Monitor ${monitor.id} deleted or inactive, skipping write-back`);
+        console.log(`[CRON] Monitor (Monitor ID: ${monitor.id}) deleted or inactive, skipping write-back`);
         continue;
       }
 
@@ -170,7 +170,7 @@ async function processPlatformGroup(
       successCount++;
       newContentCount += inserted;
     } catch (err: any) {
-      console.error(`[CRON] Monitor ${monitor.id} failed:`, err.message);
+      console.error(`[CRON] Monitor (Monitor ID: ${monitor.id}) failed:`, err.message);
       const newState = computeStatus(monitor.status, monitor.fail_count, false);
       try {
         await updateMonitorStatus(monitor.id, {

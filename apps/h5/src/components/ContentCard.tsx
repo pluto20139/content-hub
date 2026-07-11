@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { PLATFORMS, formatRelativeTime, getDeepLink, detectEnvironment } from "@content-hub/shared";
 import { HideButton } from "./HideButton.tsx";
+import { UnhideButton } from "./UnhideButton.tsx";
 import { FallbackModal } from "./FallbackModal.tsx";
 import { supabase } from "../lib/supabase";
 
@@ -28,11 +29,13 @@ function getPlaceholderCover(platform: string): string {
 interface Props {
   content: Content;
   onHide?: (id: number) => void;
+  onUnhide?: (id: number) => void;
   showHideButton?: boolean;
+  showUnhideButton?: boolean;
   isHiding?: boolean;
 }
 
-export default function ContentCard({ content, onHide, showHideButton, isHiding }: Props) {
+export default function ContentCard({ content, onHide, onUnhide, showHideButton, showUnhideButton, isHiding }: Props) {
   const [showModal, setShowModal] = useState(false);
   const [modalMessage, setModalMessage] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
@@ -81,7 +84,7 @@ export default function ContentCard({ content, onHide, showHideButton, isHiding 
 
     // WeChat / Alipay → skip Deep Link, show fallback directly
     if (env === "wechat" || env === "alipay") {
-      navigator.clipboard.writeText(originalUrl).catch(() => {});
+      navigator.clipboard?.writeText(originalUrl).catch(() => {});
       setModalMessage("当前环境不支持直接打开 App，请复制链接到系统浏览器");
       setShowModal(true);
       return;
@@ -125,7 +128,7 @@ export default function ContentCard({ content, onHide, showHideButton, isHiding 
       timeoutId = setTimeout(() => {
         cleanup();
         // Fallback scenario: write to clipboard and show modal
-        navigator.clipboard.writeText(originalUrl).catch(() => {});
+        navigator.clipboard?.writeText(originalUrl).catch(() => {});
         setModalMessage("链接已自动复制，打开 App 即可直接看");
         setShowModal(true);
       }, 2500);
@@ -213,6 +216,9 @@ export default function ContentCard({ content, onHide, showHideButton, isHiding 
         <div className="flex gap-3" style={{ touchAction: "manipulation" }}>
           {showHideButton && onHide && (
             <HideButton onHide={() => onHide(content.id)} disabled={isHiding} />
+          )}
+          {showUnhideButton && onUnhide && (
+            <UnhideButton onUnhide={() => onUnhide(content.id)} />
           )}
           <img
             src={content.cover_url ?? getPlaceholderCover(content.platform)}

@@ -3,6 +3,7 @@ import { supabase } from "../lib/supabase";
 import ContentCard from "../components/ContentCard";
 import { getCached, setCached } from "../lib/cache";
 import { SkeletonCard } from "../components/SkeletonCard";
+import { getHiddenIds, addHiddenId, removeHiddenId, asSupabaseIdList } from "../lib/hidden-storage";
 
 interface Content {
   id: number;
@@ -56,12 +57,27 @@ export default function Feed({ platform }: Props) {
       }
       setError(null);
       const isHiddenTab = platform === "hidden";
+      const hiddenIds = getHiddenIds();
       let query = supabase
         .from("contents")
         .select("id,platform,native_id,content_type,title,cover_url,original_url,published_at,summary,summary_status,monitors(native_id)")
-        .eq("is_display", isHiddenTab ? false : true)
         .order("published_at", { ascending: false })
         .range(offset, offset + PAGE_SIZE - 1);
+
+      if (isHiddenTab) {
+        // Hidden tab: show auto-expired (is_display=false) OR manually hidden (localStorage)
+        if (hiddenIds.size > 0) {
+          query = query.or(`is_display.eq.false,id.in.${asSupabaseIdList(hiddenIds)}`);
+        } else {
+          query = query.eq("is_display", false);
+        }
+      } else {
+        // Main feed: only is_display=true AND not in localStorage hidden
+        query = query.eq("is_display", true);
+        if (hiddenIds.size > 0) {
+          query = query.not("id", "in", asSupabaseIdList(hiddenIds));
+        }
+      }
 
       if (platform && !isHiddenTab) {
         query = query.eq("platform", platform);
@@ -170,9 +186,10 @@ export default function Feed({ platform }: Props) {
   }
 
   const handleHide = async (id: number) => {
+    // Anon RLS policy forbids writing to contents.is_display, so persist hide
+    // state in localStorage and filter from the in-memory list.
     const originalContents = [...contents];
-    
-    // 1. Optimistic Update
+
     setContents((prev) => prev.filter((c) => c.id !== id));
     setHidingIds((prev) => {
       const next = new Set(prev);
@@ -181,35 +198,32 @@ export default function Feed({ platform }: Props) {
     });
 
     try {
-      const { error } = await supabase
-        .from("contents")
-        .update({ is_display: false })
-        .eq("id", id);
+      addHiddenId(id);
 
-      if (error) throw error;
-      
-      setHidingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
-
-      // Update memoryCache and localStorage on manual hide
       const cacheKey = platform ?? "all";
       const updated = originalContents.filter((c) => c.id !== id);
       memoryCache[cacheKey] = { contents: updated, hasMore };
       setCached(`feed:${cacheKey}:offset:0`, updated);
     } catch (err: any) {
       console.error("Failed to hide content:", err.message);
-      // 2. Rollback & Toast
       setContents(originalContents);
+      showToast("隐藏失败，请重试");
+    } finally {
       setHidingIds((prev) => {
         const next = new Set(prev);
         next.delete(id);
         return next;
       });
-      showToast("隐藏失败，请重试");
     }
+  };
+
+  const handleUnhide = async (id: number) => {
+    removeHiddenId(id);
+    setContents((prev) => prev.filter((c) => c.id !== id));
+    const cacheKey = platform ?? "all";
+    const updated = contentsRef.current.filter((c) => c.id !== id);
+    memoryCache[cacheKey] = { contents: updated, hasMore };
+    setCached(`feed:${cacheKey}:offset:0`, updated);
   };
 
   return (
@@ -222,15 +236,20 @@ export default function Feed({ platform }: Props) {
           已隐藏内容包含手动隐藏和 30 天前自动过期的内容
         </div>
       )}
-      {contents.map((c) => (
-        <ContentCard
-          key={c.id}
-          content={c}
-          onHide={handleHide}
-          showHideButton={platform !== "hidden"}
-          isHiding={hidingIds.has(c.id)}
-        />
-      ))}
+      {contents.map((c) => {
+        const isManualHidden = getHiddenIds().has(c.id);
+        return (
+          <ContentCard
+            key={c.id}
+            content={c}
+            onHide={handleHide}
+            onUnhide={isManualHidden ? handleUnhide : undefined}
+            showHideButton={platform !== "hidden"}
+            showUnhideButton={platform === "hidden" && isManualHidden}
+            isHiding={hidingIds.has(c.id)}
+          />
+        );
+      })}
       {loading && (
         <div className="text-center text-xs py-4" style={{ color: "#8E8E93" }}>加载中...</div>
       )}

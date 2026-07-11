@@ -127,7 +127,7 @@ async function cacheLink(shortCode: string, resolvedId: string, resolvedType: st
 
 // ── B站 ──────────────────────────────────────────────
 
-const BILIBILI_SPACE_RE = /space\.bilibili\.com\/(\d+)/;
+const BILIBILI_SPACE_RE = /(?:space|m)\.bilibili\.com\/(?:space\/)?(\d+)/;
 const BILIBILI_SHORT_RE = /b23\.tv\//;
 const BILIBILI_DOMAIN_RE = /bilibili\.com/;
 

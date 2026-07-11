@@ -153,11 +153,18 @@ export default function ContentCard({ content, onHide, showHideButton, isHiding 
     if (summaryStatus === "success") {
       const cleanSummary = (content.summary || "").replace(/<think>[\s\S]*?<\/think>/, "").trim();
       return (
-        <div className="p-3 rounded-lg text-[#1C1C1E] font-normal select-text" style={{ background: "#F9F9F9", border: "0.5px solid rgba(0,0,0,0.06)" }}>
-          <div className="flex items-center gap-1.5 font-semibold text-[#8E8E93] mb-1.5 select-none text-[11px]">
-            <span>✨ AI 内容要点</span>
+        <div className="p-3 rounded-lg" style={{ background: "#F9F9F9", border: "0.5px solid rgba(0,0,0,0.06)" }}>
+          <div className="flex items-center gap-1.5 mb-2 select-none" style={{ fontSize: "11px", color: "#8E8E93", fontWeight: 500 }}>
+            <div style={{ width: "16px", height: "16px", borderRadius: "50%", background: "#1C1C1E", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ color: "#FFF", fontSize: "9px", fontWeight: 600 }}>AI</span>
+            </div>
+            <span>内容要点</span>
           </div>
-          <p className="whitespace-pre-line text-[#1C1C1E]" style={{ fontSize: "13px", lineHeight: "1.6" }}>{cleanSummary}</p>
+          <div style={{ borderLeft: "2px solid #1C1C1E", paddingLeft: "12px" }}>
+            <p className="whitespace-pre-line select-text" style={{ fontSize: "13px", color: "#1C1C1E", lineHeight: 1.6, margin: 0, fontWeight: 400 }}>
+              {cleanSummary}
+            </p>
+          </div>
         </div>
       );
     }

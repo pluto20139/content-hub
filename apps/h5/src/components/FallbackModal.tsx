@@ -9,23 +9,50 @@ export function FallbackModal({ message, onOpenWeb, onClose }: FallbackModalProp
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
+      className="fixed inset-0 flex items-center justify-center z-[9999]"
+      style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-xl p-6 max-w-[320px] text-center mx-4"
+        className="text-center mx-4"
+        style={{
+          background: "#FFF",
+          borderRadius: "14px",
+          padding: "24px",
+          maxWidth: "320px",
+        }}
       >
-        <p className="m-0 mb-4 text-base text-gray-800 leading-normal">{message}</p>
+        <p style={{ margin: "0 0 20px 0", fontSize: "15px", color: "#1C1C1E", lineHeight: 1.5, fontWeight: 400 }}>
+          {message}
+        </p>
         <div className="flex gap-2 justify-center">
           <button
             onClick={onOpenWeb}
-            className="px-4 py-2 border border-gray-200 rounded-lg bg-white cursor-pointer text-sm text-gray-700 hover:bg-gray-50 active:bg-gray-100"
+            className="cursor-pointer"
+            style={{
+              padding: "8px 16px",
+              border: "0.5px solid rgba(0,0,0,0.12)",
+              borderRadius: "10px",
+              background: "#FFF",
+              fontSize: "14px",
+              color: "#1C1C1E",
+              fontWeight: 400,
+            }}
           >
             网页打开
           </button>
           <button
             onClick={onClose}
-            className="px-4 py-2 border-none rounded-lg bg-blue-500 text-white cursor-pointer text-sm font-medium hover:bg-blue-600 active:bg-blue-700"
+            className="cursor-pointer"
+            style={{
+              padding: "8px 16px",
+              border: "none",
+              borderRadius: "10px",
+              background: "#007AFF",
+              fontSize: "14px",
+              color: "#FFF",
+              fontWeight: 500,
+            }}
           >
             关闭
           </button>

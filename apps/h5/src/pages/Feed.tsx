@@ -215,7 +215,10 @@ export default function Feed({ platform }: Props) {
   return (
     <div className="flex flex-col gap-2 px-3 py-3">
       {platform === "hidden" && (
-        <div className="text-center text-xs text-gray-400 bg-gray-50 border border-gray-100 rounded-md py-2 px-3 mb-2">
+        <div
+          className="text-center text-xs py-2 px-3 mb-2"
+          style={{ color: "#8E8E93", background: "#FFF", border: "0.5px solid rgba(0,0,0,0.06)", borderRadius: "10px" }}
+        >
           已隐藏内容包含手动隐藏和 30 天前自动过期的内容
         </div>
       )}
@@ -229,25 +232,29 @@ export default function Feed({ platform }: Props) {
         />
       ))}
       {loading && (
-        <div className="text-center text-gray-400 text-xs py-4">加载中...</div>
+        <div className="text-center text-xs py-4" style={{ color: "#8E8E93" }}>加载中...</div>
       )}
       {error && contents.length > 0 && (
         <div className="text-center py-4">
           <button
             onClick={() => fetchPage(contents.length)}
-            className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs font-medium cursor-pointer"
+            className="px-4 py-1.5 rounded text-xs font-medium cursor-pointer"
+            style={{ background: "#F2F2F7", color: "#1C1C1E", border: "0.5px solid rgba(0,0,0,0.06)" }}
           >
             加载失败，点击重试
           </button>
         </div>
       )}
       {!hasMore && contents.length > 0 && (
-        <div className="text-center text-gray-300 text-xs py-4">没有更多内容了</div>
+        <div className="text-center text-xs py-4" style={{ color: "#C7C7CC" }}>没有更多内容了</div>
       )}
       <div ref={observerRef} />
       
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-black/80 text-white text-xs px-4 py-2 rounded-full shadow-lg z-50 animate-bounce">
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 text-xs px-4 py-2 rounded-full z-50"
+          style={{ background: "rgba(0,0,0,0.7)", color: "#FFF", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" }}
+        >
           {toast}
         </div>
       )}

@@ -64,14 +64,20 @@ export default function ContentCard({ content, onHide, onUnhide, showHideButton,
     e.stopPropagation();
     setIsRetrying(true);
     try {
-      const { error } = await supabase
-        .from("contents")
-        .update({ summary_status: "pending" })
-        .eq("id", content.id);
+      const { data, error } = await supabase.functions.invoke<{
+        success: boolean;
+        data?: { content_id: number; previous_status: string };
+        error?: { code: string; message: string };
+      }>("retry-summary", {
+        body: { content_id: content.id },
+      });
       if (error) throw error;
+      if (!data?.success) {
+        throw new Error(data?.error?.message ?? "重试失败");
+      }
       setLocalStatus("pending");
     } catch (err: any) {
-      console.error("Failed to retry summary:", err.message);
+      console.error("Failed to retry summary:", err.message ?? err);
     } finally {
       setIsRetrying(false);
     }

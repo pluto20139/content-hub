@@ -21,7 +21,7 @@ interface Content {
 function getPlaceholderCover(platform: string): string {
   const color = PLATFORMS[platform]?.brandColor ?? "#999";
   const name = PLATFORMS[platform]?.name ?? "";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" fill="${color}"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="20">${name}</text></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" fill="${color}"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="18" font-family="-apple-system,sans-serif">${name}</text></svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
@@ -140,15 +140,12 @@ export default function ContentCard({ content, onHide, showHideButton, isHiding 
   const renderSummaryContent = () => {
     if (summaryStatus === "pending" || summaryStatus === "processing") {
       return (
-        <div className="flex flex-col gap-1.5 p-2.5 rounded bg-indigo-50/40 border border-indigo-100/20">
-          <div className="flex items-center gap-1.5 text-indigo-500 font-medium animate-pulse">
-            <span className="inline-block animate-spin text-sm">🪄</span>
-            <span>AI 正在对视频进行要点总结，请稍候...</span>
-          </div>
-          <div className="space-y-1.5 mt-1">
-            <div className="h-2 rounded bg-indigo-100/50 animate-pulse w-full"></div>
-            <div className="h-2 rounded bg-indigo-100/30 animate-pulse w-[85%]"></div>
-          </div>
+        <div className="flex items-center gap-2 p-3 rounded-lg text-[#8E8E93]" style={{ background: "#F9F9F9", border: "0.5px solid rgba(0,0,0,0.06)", fontSize: "13px" }}>
+          <svg className="animate-spin h-4 w-4 text-[#8E8E93]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span>总结中...</span>
         </div>
       );
     }
@@ -156,23 +153,23 @@ export default function ContentCard({ content, onHide, showHideButton, isHiding 
     if (summaryStatus === "success") {
       const cleanSummary = (content.summary || "").replace(/<think>[\s\S]*?<\/think>/, "").trim();
       return (
-        <div className="p-2.5 rounded bg-indigo-50/20 border border-indigo-100/30 text-gray-700 leading-relaxed text-[11px] font-normal select-text">
-          <div className="flex items-center gap-1.5 font-semibold text-indigo-600/90 mb-1.5 select-none">
+        <div className="p-3 rounded-lg text-[#1C1C1E] font-normal select-text" style={{ background: "#F9F9F9", border: "0.5px solid rgba(0,0,0,0.06)" }}>
+          <div className="flex items-center gap-1.5 font-semibold text-[#8E8E93] mb-1.5 select-none text-[11px]">
             <span>✨ AI 内容要点</span>
           </div>
-          <p className="whitespace-pre-line text-gray-600 font-medium leading-snug">{cleanSummary}</p>
+          <p className="whitespace-pre-line text-[#1C1C1E]" style={{ fontSize: "13px", lineHeight: "1.6" }}>{cleanSummary}</p>
         </div>
       );
     }
 
     if (summaryStatus === "failed") {
       return (
-        <div className="flex items-center justify-between p-2.5 rounded bg-red-50/40 border border-red-100/20 text-[11px]">
-          <span className="text-red-500 font-medium">⚠️ 总结生成失败，可能由于接口超时或内容受限。</span>
+        <div className="flex items-center justify-between p-3 rounded-lg text-[13px]" style={{ background: "#F9F9F9", border: "0.5px solid rgba(0,0,0,0.06)" }}>
+          <span className="text-[#8E8E93]">⚠️ 总结生成失败</span>
           <button
             onClick={handleRetry}
             disabled={isRetrying}
-            className="px-2 py-0.5 rounded bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 transition-colors font-semibold active:scale-95 text-[10px]"
+            className="px-2 py-0.5 rounded bg-white text-[#1C1C1E] hover:bg-gray-50 border border-gray-200 transition-all font-medium active:scale-95 text-xs"
           >
             {isRetrying ? "重试中..." : "重新总结"}
           </button>
@@ -199,9 +196,14 @@ export default function ContentCard({ content, onHide, showHideButton, isHiding 
         }}
         role="button"
         tabIndex={0}
-        className="relative flex flex-col gap-2 p-3 bg-white rounded-lg shadow-sm cursor-pointer active:bg-gray-50 border border-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="relative flex flex-col gap-2 bg-white cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500"
+        style={{
+          borderRadius: "12px",
+          border: "0.5px solid rgba(0,0,0,0.06)",
+          padding: "16px",
+        }}
       >
-        <div className="flex gap-3">
+        <div className="flex gap-3" style={{ touchAction: "manipulation" }}>
           {showHideButton && onHide && (
             <HideButton onHide={() => onHide(content.id)} disabled={isHiding} />
           )}
@@ -212,32 +214,36 @@ export default function ContentCard({ content, onHide, showHideButton, isHiding 
             referrerPolicy="no-referrer"
             loading="lazy"
             decoding="async"
-            width={80}
-            height={56}
-            className="w-20 h-14 rounded object-cover shrink-0 bg-gray-100"
+            width={72}
+            height={72}
+            className="w-[72px] h-[72px] object-cover shrink-0"
+            style={{ borderRadius: "10px", background: "#F2F2F7" }}
           />
           <div className="flex flex-col flex-1 min-w-0 justify-between">
-            <h3 className="text-sm font-medium leading-snug line-clamp-2 text-gray-900">
+            <h3 className="font-medium leading-snug line-clamp-2 text-[#1C1C1E]" style={{ fontSize: "15px" }}>
               {content.title}
             </h3>
             <div className="flex items-center gap-2 mt-1 select-none">
               <span
-                className="text-xs px-1.5 py-0.5 rounded font-medium text-white shrink-0"
-                style={{ backgroundColor: info?.brandColor ?? "#999" }}
+                className="text-[11px] px-1.5 py-0.5 rounded font-medium shrink-0"
+                style={{
+                  backgroundColor: info?.tagBg ?? "#F1F1F1",
+                  color: info?.tagText ?? "#1C1C1E",
+                }}
               >
                 {info?.name ?? content.platform}
               </span>
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-[#8E8E93]">
                 {formatRelativeTime(new Date(content.published_at))}
               </span>
               {summaryStatus !== "none" && (
                 <button
                   onClick={handleToggleSummary}
-                  className="ml-auto flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-100 hover:bg-indigo-100/70 transition-all shadow-sm active:scale-95 shrink-0 z-10"
+                  className="ml-auto flex items-center gap-0.5 text-xs font-normal text-[#8E8E93] hover:text-[#1C1C1E] transition-colors shrink-0 z-10 focus:outline-none"
                 >
-                  <span>✨ AI 总结</span>
-                  <span className={`transition-transform duration-200 text-[8px] ${isExpanded ? "rotate-180" : ""}`}>
-                    ▼
+                  <span>AI 要点</span>
+                  <span className={`inline-block transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`} style={{ fontSize: "10px", marginLeft: "2px" }}>
+                    ▾
                   </span>
                 </button>
               )}
@@ -246,11 +252,16 @@ export default function ContentCard({ content, onHide, showHideButton, isHiding 
         </div>
 
         {/* Collapsible AI Summary Section */}
-        {isExpanded && summaryStatus !== "none" && (
+        {summaryStatus !== "none" && (
           <div
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
-            className="summary-container border-t border-dashed border-gray-100 pt-2 mt-1 text-xs text-gray-600 cursor-default"
+            className="summary-container overflow-hidden transition-[max-height,opacity] duration-300 ease-out cursor-default"
+            style={{
+              maxHeight: isExpanded ? "1000px" : "0px",
+              opacity: isExpanded ? 1 : 0,
+              marginTop: isExpanded ? "12px" : "0px",
+            }}
           >
             {renderSummaryContent()}
           </div>

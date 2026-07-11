@@ -2,6 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-bg-page: #F2F2F7;
+  --color-card-bg: #FFFFFF;
+  --color-card-border: rgba(0,0,0,0.06);
+  --color-text-main: #1C1C1E;
+  --color-text-sub: #8E8E93;
+  --color-text-weak: #C7C7CC;
+  --color-summary-bg: #F9F9F9;
+  --color-summary-border: rgba(0,0,0,0.06);
+}
+
 body {
   margin: 0;
+  background: var(--color-bg-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.ai-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid #8E8E93;
+  border-top-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+.summary-expand {
+  overflow: hidden;
+  transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+}
+
+.summary-chevron {
+  display: inline-block;
+  transition: transform 0.3s ease-out;
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

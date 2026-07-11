@@ -55,8 +55,18 @@ Deno.serve(async (req) => {
   console.log(`[ArticleFetcher] Fetching detail content for ${platform} ${content_type} (ID: ${native_id})`);
 
   if (platform === "zhihu") {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const rsshubUrl = Deno.env.get("RSSHUB_URL");
     const rsshubApiKey = Deno.env.get("RSSHUB_API_KEY");
+
+    if (!supabaseUrl || !serviceKey) {
+      console.error("[ArticleFetcher] Supabase config is missing in environment variables");
+      return new Response(JSON.stringify({ error: "Supabase config is missing" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (!rsshubUrl) {
       console.error("[ArticleFetcher] RSSHUB_URL is not configured in environment variables");
@@ -66,16 +76,63 @@ Deno.serve(async (req) => {
       });
     }
 
-    const cleanId = native_id.replace("people:", "").replace("column:", "");
-    const isColumn = content_type === "article" || native_id.startsWith("column:");
+    // 1. Fetch the content record from Supabase DB to find its monitor
+    let monitorNativeId = "";
+    let monitorNativeType = "";
+    try {
+      const contentRes = await fetch(
+        `${supabaseUrl}/rest/v1/contents?platform=eq.${platform}&native_id=eq.${native_id}&select=monitor_id`,
+        {
+          headers: {
+            apikey: serviceKey,
+            Authorization: `Bearer ${serviceKey}`,
+          },
+        }
+      );
+
+      if (!contentRes.ok) {
+        throw new Error(`DB contents query returned status ${contentRes.status}`);
+      }
+
+      const contentData = await contentRes.json();
+      const monitorId = contentData?.[0]?.monitor_id;
+
+      if (monitorId) {
+        // 2. Fetch the monitor record to get its native_id (the actual column or user name)
+        const monitorRes = await fetch(
+          `${supabaseUrl}/rest/v1/monitors?id=eq.${monitorId}&select=native_id,native_type`,
+          {
+            headers: {
+              apikey: serviceKey,
+              Authorization: `Bearer ${serviceKey}`,
+            },
+          }
+        );
+
+        if (monitorRes.ok) {
+          const monitorData = await monitorRes.json();
+          monitorNativeId = monitorData?.[0]?.native_id || "";
+          monitorNativeType = monitorData?.[0]?.native_type || "";
+        }
+      }
+    } catch (dbErr: any) {
+      console.warn(`[ArticleFetcher] DB lookup failed: ${dbErr.message}. Falling back to native_id.`);
+    }
+
+    // Fallback if DB lookup did not yield monitor info (unlikely in production)
+    const monitorIdToUse = monitorNativeId || native_id;
+    const cleanMonitorId = monitorIdToUse.replace("people:", "").replace("column:", "");
+    const isColumn = content_type === "article" || monitorNativeType === "column" || monitorIdToUse.startsWith("column:");
     const path = isColumn
-      ? `/zhihu/zhuanlan/${cleanId}`
-      : `/zhihu/people/activities/${cleanId}`;
+      ? `/zhihu/zhuanlan/${cleanMonitorId}`
+      : `/zhihu/people/activities/${cleanMonitorId}`;
 
     let url = `${rsshubUrl}${path}?format=json`;
     if (rsshubApiKey) {
       url += `&access_key=${rsshubApiKey}`;
     }
+
+    console.log(`[ArticleFetcher] Zhihu RSSHub request URL: ${url}`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -94,11 +151,11 @@ Deno.serve(async (req) => {
       const items = data.items || [];
       let targetItem = null;
 
-      // Try to find the matching item
+      // Try to find the item containing the content native_id in id or url
       for (const item of items) {
         const itemUrl = item.url || "";
         const itemId = String(item.id || "");
-        if (itemId.includes(cleanId) || itemUrl.includes(cleanId)) {
+        if (itemId.includes(native_id) || itemUrl.includes(native_id)) {
           targetItem = item;
           break;
         }

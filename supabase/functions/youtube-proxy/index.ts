@@ -24,9 +24,10 @@ serve(async (req) => {
     console.log(`[Proxy] Forwarding to: ${targetUrl.toString()}`);
 
     const headers = new Headers();
-    // Copy essential headers
+    // Copy essential headers, excluding Supabase auth headers which break Google APIs
     for (const [key, value] of req.headers.entries()) {
-      if (key.toLowerCase() !== "host") {
+      const lowerKey = key.toLowerCase();
+      if (lowerKey !== "host" && lowerKey !== "authorization" && lowerKey !== "apikey") {
         headers.set(key, value);
       }
     }

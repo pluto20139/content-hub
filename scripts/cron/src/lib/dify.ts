@@ -100,11 +100,20 @@ async function fetchYoutubeContent(videoId: string): Promise<string> {
     console.warn("[DIFY] YOUTUBE_API_KEY is not configured, skipping YouTube content fetching");
     return "";
   }
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5000);
   try {
     const url = `${process.env.SUPABASE_URL}/functions/v1/youtube-proxy/videos?part=snippet&id=${encodeURIComponent(videoId)}&key=${apiKey}`;
-    const res = await fetch(url, { signal: controller.signal });
+    const headers: Record<string, string> = {};
+    if (anonKey) {
+      headers["apikey"] = anonKey;
+      headers["Authorization"] = `Bearer ${anonKey}`;
+    }
+    const res = await fetch(url, {
+      headers,
+      signal: controller.signal,
+    });
     if (!res.ok) throw new Error(`YouTube API returned status ${res.status}`);
     const json: any = await res.json();
     const item = json.items?.[0];
@@ -126,7 +135,7 @@ async function fetchYoutubeContent(videoId: string): Promise<string> {
  */
 async function fetchArticleContent(platform: string, nativeId: string, contentType: string): Promise<string> {
   const url = `${process.env.SUPABASE_URL}/functions/v1/article-fetcher`;
-  const anonKey = process.env.SUPABASE_ANON_KEY;
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
   if (!anonKey) {
     console.warn("[DIFY] SUPABASE_ANON_KEY is not configured, skipping article content fetch");
     return "";

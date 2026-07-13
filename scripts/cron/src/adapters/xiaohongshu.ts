@@ -158,6 +158,21 @@ export class XiaohongshuAdapter implements PlatformAdapter {
       }
 
       const html = await res.text();
+
+      // Check if we got redirected to login page or triggered slider verification
+      if (
+        html.includes("fe-login") ||
+        html.includes("login") ||
+        res.url.includes("/login") ||
+        html.includes("网页无法访问") ||
+        html.includes("验证") ||
+        html.length < 15000 // typical login pages are very short, real user profiles are long
+      ) {
+        const err = new Error("Xiaohongshu Mobile Web request was blocked or redirected to login (needs Cookie or IP proxy)");
+        (err as any).isPlatformLevel = true;
+        throw err;
+      }
+
       const stateMatch = /window\.__INITIAL_STATE__\s*=\s*({.+?})<\/script>/.exec(html);
       if (stateMatch) {
         const state = JSON.parse(stateMatch[1]);
@@ -177,16 +192,15 @@ export class XiaohongshuAdapter implements PlatformAdapter {
           });
         }
       }
+
+      throw new Error("Mobile web returned normal page but window.__INITIAL_STATE__ was not found. Page structure might have changed.");
     } catch (err: any) {
       if (selectedProxy) {
         this.proxyPool.markFailed(selectedProxy);
       }
       console.warn(`[XiaohongshuAdapter] Mobile Web fallback failed: ${err.message}`);
+      throw err; // Re-throw the original error (which keeps isPlatformLevel flag if present)
     }
-
-    const error = new Error("Xiaohongshu RSSHub and Mobile Web crawlers both failed");
-    (error as any).isPlatformLevel = true;
-    throw error;
   }
 
   async fetchDisplayName(monitor: Monitor): Promise<string | null> {

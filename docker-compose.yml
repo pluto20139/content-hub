@@ -12,6 +12,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       ZHIHU_COOKIES: ${ZHIHU_COOKIES}
       XIAOHONGSHU_COOKIE: ${XIAOHONGSHU_COOKIE}
+      TWITTER_AUTH_TOKEN: ${TWITTER_AUTH_TOKEN}
     depends_on:
       - redis
 

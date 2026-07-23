@@ -3,6 +3,8 @@ import type { Monitor, PlatformAdapter, PlatformResult, RawContent } from "./typ
 import { DatabaseProxyPool } from "../lib/proxy.js";
 
 const RSSHUB_URL = process.env.RSSHUB_URL || "http://127.0.0.1:1200";
+const SUPABASE_URL = process.env.SUPABASE_URL || "";
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 const FALLBACK_ENDPOINTS = [
   (handle: string) => `https://nitter.privacydev.net/${handle}/rss`,
@@ -22,14 +24,47 @@ export class XAdapter implements PlatformAdapter {
     console.log(`[X] Fetching latest posts for Monitor (Monitor ID: ${monitor.id}, Handle: ${monitor.native_id})`);
     await this.proxyPool.load();
     const handle = monitor.native_id.replace(/^@/, "").trim();
-    const primaryUrl = `${RSSHUB_URL}/twitter/user/${encodeURIComponent(handle)}`;
 
+    // 1. Try Supabase Edge Function x-fetcher (runs on Singapore/US cloud nodes)
+    if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+      try {
+        console.log(`[X] Requesting Edge Function x-fetcher for @${handle}...`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        const edgeRes = await fetch(`${SUPABASE_URL}/functions/v1/x-fetcher`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+          },
+          body: JSON.stringify({ handle }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (edgeRes.ok) {
+          const body: any = await edgeRes.json();
+          if (body.success && Array.isArray(body.data) && body.data.length > 0) {
+            console.log(`[X] Successfully fetched ${body.data.length} posts for @${handle} via Edge Function x-fetcher`);
+            return body.data as RawContent[];
+          }
+        } else {
+          console.warn(`[X] Edge Function x-fetcher returned status ${edgeRes.status} for @${handle}`);
+        }
+      } catch (edgeErr: unknown) {
+        console.warn(`[X] Edge Function x-fetcher failed for @${handle}:`, edgeErr instanceof Error ? edgeErr.message : String(edgeErr));
+      }
+    }
+
+    const primaryUrl = `${RSSHUB_URL}/twitter/user/${encodeURIComponent(handle)}`;
     const selectedProxy = this.proxyPool.getHealthyProxy();
 
-    // 1. Try primary local RSSHub endpoint first with timeout
+    // 2. Try primary local RSSHub endpoint with timeout
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
 
       const fetchOpts: any = {
         headers: {
@@ -59,13 +94,13 @@ export class XAdapter implements PlatformAdapter {
       console.warn(`[X] Primary RSSHub fetch failed for @${handle}:`, err instanceof Error ? err.message : String(err));
     }
 
-    // 2. Try fallback public RSS endpoints
+    // 3. Try fallback public RSS endpoints
     for (const getFallbackUrl of FALLBACK_ENDPOINTS) {
       const fallbackUrl = getFallbackUrl(handle);
       try {
         console.log(`[X] Trying fallback RSS endpoint for @${handle}: ${fallbackUrl}`);
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
 
         const fetchOpts: any = {
           headers: {
@@ -95,7 +130,7 @@ export class XAdapter implements PlatformAdapter {
       }
     }
 
-    throw new Error(`X (Twitter) RSS 抓取失败：RSSHub 代理未联通推特接口，需在服务器配置 X_PROXY_LIST 代理池`);
+    throw new Error(`X (Twitter) RSS 抓取失败：所有镜像节点暂不可用`);
   }
 
   async fetchDisplayName(monitor: Monitor): Promise<string | null> {
@@ -154,7 +189,7 @@ export class XAdapter implements PlatformAdapter {
       }
 
       // Extract cover image
-      let coverUrl = "";
+      let coverUrl: string | null = null;
       const imgMatch = desc.match(/<img[^>]+src=["']([^"']+)["']/i);
       if (imgMatch) {
         coverUrl = imgMatch[1];
@@ -177,7 +212,7 @@ export class XAdapter implements PlatformAdapter {
         native_id: nativeId,
         content_type: "post",
         title: cleanTitle || `推文由 @${handle} 发布`,
-        cover_url: coverUrl || null,
+        cover_url: coverUrl,
         original_url: `https://x.com/${handle}/status/${nativeId}`,
         published_at: pubDateIso,
       });

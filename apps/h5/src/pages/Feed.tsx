@@ -66,7 +66,7 @@ export default function Feed({ platform, userId }: Props) {
         .range(offset, offset + PAGE_SIZE - 1);
 
       if (userId) {
-        query = query.eq("user_id", userId);
+        query = query.or(`user_id.eq.${userId},user_id.is.null`);
       }
 
       if (isHiddenTab) {

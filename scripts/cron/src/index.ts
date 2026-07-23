@@ -269,6 +269,12 @@ export async function run(): Promise<CronResult> {
       platformGroups.push({ monitors: xiaohongshuMonitors, adapter: createAdapter("xiaohongshu") });
     }
 
+    // X (Twitter) group
+    const xMonitors = others.filter((m) => m.platform === "x");
+    if (xMonitors.length > 0) {
+      platformGroups.push({ monitors: xMonitors, adapter: createAdapter("x") });
+    }
+
     // YouTube group
     if (youtube.length > 0) {
       platformGroups.push({ monitors: youtube, adapter: createAdapter("youtube") });

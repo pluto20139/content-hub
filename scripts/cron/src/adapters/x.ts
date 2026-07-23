@@ -1,5 +1,6 @@
-import { fetch } from "undici";
+import { fetch, ProxyAgent } from "undici";
 import type { Monitor, PlatformAdapter, PlatformResult, RawContent } from "./types.js";
+import { DatabaseProxyPool } from "../lib/proxy.js";
 
 const RSSHUB_URL = process.env.RSSHUB_URL || "http://127.0.0.1:1200";
 
@@ -11,43 +12,75 @@ const FALLBACK_ENDPOINTS = [
 
 export class XAdapter implements PlatformAdapter {
   readonly platform = "x" as const;
+  private proxyPool: DatabaseProxyPool;
+
+  constructor() {
+    this.proxyPool = new DatabaseProxyPool("x");
+  }
 
   async fetchLatest(monitor: Monitor): Promise<RawContent[]> {
     console.log(`[X] Fetching latest posts for Monitor (Monitor ID: ${monitor.id}, Handle: ${monitor.native_id})`);
+    await this.proxyPool.load();
     const handle = monitor.native_id.replace(/^@/, "").trim();
     const primaryUrl = `${RSSHUB_URL}/twitter/user/${encodeURIComponent(handle)}`;
 
-    // Try primary RSSHub endpoint first
+    const selectedProxy = this.proxyPool.getHealthyProxy();
+
+    // 1. Try primary local RSSHub endpoint first with timeout
     try {
-      const res = await fetch(primaryUrl, {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      const fetchOpts: any = {
         headers: {
           "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
           "Accept": "application/xml, text/xml, */*",
         },
-      });
+        signal: controller.signal,
+      };
+
+      if (selectedProxy) {
+        fetchOpts.dispatcher = new ProxyAgent(selectedProxy);
+      }
+
+      const res = await fetch(primaryUrl, fetchOpts);
+      clearTimeout(timeoutId);
 
       if (res.ok) {
         const xmlText = await res.text();
         const items = this.parseRssFeed(xmlText, handle);
         if (items.length > 0) return items;
       } else {
+        if (selectedProxy) this.proxyPool.markFailed(selectedProxy);
         console.warn(`[X] Primary RSSHub returned HTTP ${res.status} for handle @${handle}, trying fallbacks...`);
       }
     } catch (err: unknown) {
+      if (selectedProxy) this.proxyPool.markFailed(selectedProxy);
       console.warn(`[X] Primary RSSHub fetch failed for @${handle}:`, err instanceof Error ? err.message : String(err));
     }
 
-    // Fallback endpoints
+    // 2. Try fallback public RSS endpoints
     for (const getFallbackUrl of FALLBACK_ENDPOINTS) {
       const fallbackUrl = getFallbackUrl(handle);
       try {
         console.log(`[X] Trying fallback RSS endpoint for @${handle}: ${fallbackUrl}`);
-        const res = await fetch(fallbackUrl, {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        const fetchOpts: any = {
           headers: {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/xml, text/xml, */*",
           },
-        });
+          signal: controller.signal,
+        };
+
+        if (selectedProxy) {
+          fetchOpts.dispatcher = new ProxyAgent(selectedProxy);
+        }
+
+        const res = await fetch(fallbackUrl, fetchOpts);
+        clearTimeout(timeoutId);
 
         if (res.ok) {
           const xmlText = await res.text();
@@ -62,7 +95,7 @@ export class XAdapter implements PlatformAdapter {
       }
     }
 
-    throw new Error(`X (Twitter) RSS 抓取失败：RSSHub 及镜像源暂无数据，请检查网络或配置 TWITTER_AUTH_TOKEN`);
+    throw new Error(`X (Twitter) RSS 抓取失败：RSSHub 代理未联通推特接口，需在服务器配置 X_PROXY_LIST 代理池`);
   }
 
   async fetchDisplayName(monitor: Monitor): Promise<string | null> {

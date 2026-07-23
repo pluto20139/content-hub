@@ -21,6 +21,11 @@ export default function H5Auth({ onSuccess }: Props) {
     setLoading(true);
 
     if (mode === "register") {
+      if (!email.trim()) {
+        setError("请输入邮箱地址");
+        setLoading(false);
+        return;
+      }
       if (password !== confirmPassword) {
         setError("两次输入的密码不一致");
         setLoading(false);
@@ -34,18 +39,29 @@ export default function H5Auth({ onSuccess }: Props) {
 
       const { data, error: err } = await supabase.auth.signUp({ email, password });
       if (err) {
-        setError(err.message);
+        const msg = err.message.toLowerCase();
+        if (msg.includes("already registered") || msg.includes("already exists")) {
+          setError("该邮箱已被注册，请直接登录");
+        } else {
+          setError(err.message);
+        }
         setLoading(false);
         return;
       }
 
-      if (data.user) {
-        if (data.session) {
-          onSuccess(data.user.id);
-        } else {
-          setSuccessMsg("注册成功！如果配置了邮件确认，请验证后登录。");
-          setMode("login");
-        }
+      if (data.user && data.session) {
+        onSuccess(data.user.id);
+        setLoading(false);
+        return;
+      }
+
+      // If Supabase requires explicit sign-in fallback
+      const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
+      if (loginErr) {
+        setSuccessMsg("注册成功，请输入密码登录。");
+        setMode("login");
+      } else if (loginData.user) {
+        onSuccess(loginData.user.id);
       }
       setLoading(false);
       return;

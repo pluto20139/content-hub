@@ -17,6 +17,11 @@ export default function Login() {
     setLoading(true);
 
     if (mode === "register") {
+      if (!email.trim()) {
+        setError("请输入邮箱地址");
+        setLoading(false);
+        return;
+      }
       if (password !== confirmPassword) {
         setError("两次输入的密码不一致");
         setLoading(false);
@@ -30,16 +35,29 @@ export default function Login() {
 
       const { data, error: err } = await supabase.auth.signUp({ email, password });
       if (err) {
-        setError(err.message);
+        const msg = err.message.toLowerCase();
+        if (msg.includes("already registered") || msg.includes("already exists")) {
+          setError("该邮箱已被注册，请直接登录");
+        } else {
+          setError(err.message);
+        }
         setLoading(false);
         return;
       }
 
       if (data.session) {
         window.location.hash = "#/monitors";
-      } else {
-        setSuccess("注册成功！如果启用了邮箱验证，请检查邮件后登录。");
+        setLoading(false);
+        return;
+      }
+
+      // If Supabase requires explicit sign-in fallback
+      const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({ email, password });
+      if (loginErr) {
+        setSuccess("注册成功，请切换至登录页输入密码登录。");
         setMode("login");
+      } else if (loginData.session) {
+        window.location.hash = "#/monitors";
       }
       setLoading(false);
       return;

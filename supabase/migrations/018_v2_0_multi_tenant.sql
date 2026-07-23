@@ -63,6 +63,7 @@ CREATE POLICY platform_configs_user_all ON platform_configs
   WITH CHECK (auth.uid() = user_id);
 
 -- 5. 重建平台配置脱敏视图 platform_configs_admin
+DROP VIEW IF EXISTS platform_configs_admin CASCADE;
 CREATE OR REPLACE VIEW platform_configs_admin AS
   SELECT 
     id,

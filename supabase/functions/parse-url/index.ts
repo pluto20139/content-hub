@@ -10,6 +10,7 @@ interface ParseSuccess {
     platform: string;
     native_id: string;
     display_name: string;
+    original_url: string;
     native_type?: string | null;
   };
 }
@@ -148,7 +149,13 @@ async function parseBilibili(mid: string): Promise<ParseResponse> {
   }
   return {
     success: true,
-    data: { platform: "bilibili", native_id: mid, display_name: displayName, native_type: "user" },
+    data: {
+      platform: "bilibili",
+      native_id: mid,
+      display_name: displayName,
+      original_url: `https://space.bilibili.com/${mid}`,
+      native_type: "user",
+    },
   };
 }
 
@@ -248,7 +255,13 @@ async function parseYoutube(url: string): Promise<ParseResponse> {
     const displayName = title || `YouTube_${channelId.slice(0, 8)}`;
     return {
       success: true,
-      data: { platform: "youtube", native_id: channelId, display_name: displayName, native_type: null },
+      data: {
+        platform: "youtube",
+        native_id: channelId,
+        display_name: displayName,
+        original_url: `https://www.youtube.com/channel/${channelId}`,
+        native_type: null,
+      },
     };
   } catch {
     return { success: false, error: { code: "YOUTUBE_API_ERROR", message: "YouTube API 调用失败，请稍后重试" } };
@@ -287,9 +300,13 @@ async function parseZhihu(url: string): Promise<ParseResponse> {
     return { success: false, error: { code: "INVALID_URL", message: "知乎链接格式不正确" } };
   }
 
+  const original_url = native_type === "people"
+    ? `https://www.zhihu.com/people/${native_id}`
+    : `https://zhuanlan.zhihu.com/${native_id}`;
+
   return {
     success: true,
-    data: { platform: "zhihu", native_id, display_name: displayName, native_type },
+    data: { platform: "zhihu", native_id, display_name: displayName, original_url, native_type },
   };
 }
 
@@ -355,6 +372,7 @@ async function parseDouyin(url: string): Promise<ParseResponse> {
       platform: "douyin",
       native_id: secUid,
       display_name: `抖音用户_${secUid.slice(0, 8)}`,
+      original_url: `https://www.douyin.com/user/${secUid}`,
       native_type: null,
     },
   };
@@ -404,6 +422,7 @@ async function parseXiaohongshu(url: string): Promise<ParseResponse> {
           platform: "xiaohongshu",
           native_id: cached.resolved_id,
           display_name: `小红书用户_${cached.resolved_id.slice(0, 8)}`,
+          original_url: `https://www.xiaohongshu.com/user/profile/${cached.resolved_id}`,
           native_type: null,
         },
       };
@@ -442,6 +461,7 @@ async function parseXiaohongshu(url: string): Promise<ParseResponse> {
       platform: "xiaohongshu",
       native_id: userId,
       display_name: `小红书用户_${userId.slice(0, 8)}`,
+      original_url: `https://www.xiaohongshu.com/user/profile/${userId}`,
       native_type: null,
     },
   };
@@ -482,8 +502,22 @@ async function handleRequest(req: Request): Promise<Response> {
     );
   }
 
-  const url = body.url?.trim();
-  if (!url || !isValidUrl(url)) {
+  let rawUrl = body.url?.trim();
+  if (!rawUrl) {
+    return new Response(
+      JSON.stringify({ success: false, error: { code: "INVALID_URL", message: "URL 不能为空" } }),
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  // Prepend protocol if missing or handles (@username, x.com/xxx, twitter.com/xxx)
+  if (rawUrl.startsWith("@")) {
+    rawUrl = `https://x.com/${rawUrl.slice(1)}`;
+  } else if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
+    rawUrl = `https://${rawUrl}`;
+  }
+
+  if (!isValidUrl(rawUrl)) {
     return new Response(
       JSON.stringify({ success: false, error: { code: "INVALID_URL", message: "URL 格式不合法" } }),
       { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -493,10 +527,10 @@ async function handleRequest(req: Request): Promise<Response> {
   let result: ParseResponse | undefined;
 
   try {
-    let resolvedUrl = url;
+    let resolvedUrl = rawUrl;
     // Resolve B站 short links first using generic redirect resolver
-    if (BILIBILI_SHORT_RE.test(url)) {
-      const resolved = await resolveLink(url);
+    if (BILIBILI_SHORT_RE.test(rawUrl)) {
+      const resolved = await resolveLink(rawUrl);
       if (!resolved || !resolved.url) {
         result = { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法解析 B站短链接，请使用完整链接" } };
       } else {
@@ -540,6 +574,7 @@ async function handleRequest(req: Request): Promise<Response> {
             platform: "x",
             native_id: handle,
             display_name: `@${handle}`,
+            original_url: `https://x.com/${handle}`,
           },
         };
       } else {

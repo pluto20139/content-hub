@@ -6,5 +6,8 @@ export type { Platform, ContentType, DeepLinkOptions } from './constants/deep-li
 
 export { formatRelativeTime, getDaysSinceActivity } from './utils/time';
 
-export { detectEnvironment } from './utils/environment';
+export { detectEnvironment, isDesktopBrowser } from './utils/environment';
 export type { Environment } from './utils/environment';
+
+export { parseXUrl } from './utils/x-parser';
+export type { ParsedXUser } from './utils/x-parser';

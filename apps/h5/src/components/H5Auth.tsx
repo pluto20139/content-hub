@@ -1,19 +1,23 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 
-export default function Login() {
+interface Props {
+  onSuccess: (userId: string) => void;
+}
+
+export default function H5Auth({ onSuccess }: Props) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    setSuccess("");
+    setSuccessMsg("");
     setLoading(true);
 
     if (mode === "register") {
@@ -23,7 +27,7 @@ export default function Login() {
         return;
       }
       if (password.length < 6) {
-        setError("密码长度至少为 6 位");
+        setError("密码长度至少 6 位");
         setLoading(false);
         return;
       }
@@ -35,62 +39,78 @@ export default function Login() {
         return;
       }
 
-      if (data.session) {
-        window.location.hash = "#/monitors";
-      } else {
-        setSuccess("注册成功！如果启用了邮箱验证，请检查邮件后登录。");
-        setMode("login");
+      if (data.user) {
+        if (data.session) {
+          onSuccess(data.user.id);
+        } else {
+          setSuccessMsg("注册成功！如果配置了邮件确认，请验证后登录。");
+          setMode("login");
+        }
       }
       setLoading(false);
       return;
     }
 
-    // Login mode
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error: err } = await supabase.auth.signInWithPassword({ email, password });
     if (err) {
       setError(err.message);
       setLoading(false);
       return;
     }
 
-    window.location.hash = "#/monitors";
+    if (data.user) {
+      onSuccess(data.user.id);
+    }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
-      <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-sm border border-gray-100">
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "#F2F2F7" }}>
+      <div
+        className="w-full max-w-sm p-6 rounded-2xl shadow-xl"
+        style={{
+          background: "rgba(255, 255, 255, 0.9)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          border: "0.5px solid rgba(0, 0, 0, 0.08)",
+        }}
+      >
         <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">多平台内容中枢</h1>
-          <p className="text-xs text-gray-500 mt-1">V2.0 多租户管理端</p>
+          <div className="w-12 h-12 bg-black text-white rounded-2xl flex items-center justify-center mx-auto mb-3 font-bold text-xl shadow-md">
+            M
+          </div>
+          <h2 className="text-xl font-bold text-gray-900">多平台内容中枢</h2>
+          <p className="text-xs text-gray-500 mt-1">
+            请打开包含专属链接的 URL 或登录查看您的订阅 Feed
+          </p>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex mb-6 bg-gray-100 p-1 rounded-lg">
+        {/* Tab switcher */}
+        <div className="flex mb-5 bg-gray-200/60 p-1 rounded-xl">
           <button
             type="button"
             onClick={() => {
               setMode("login");
               setError("");
-              setSuccess("");
+              setSuccessMsg("");
             }}
-            className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition ${
+            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               mode === "login"
-                ? "bg-white text-blue-600 shadow-sm"
+                ? "bg-white text-gray-900 shadow-sm"
                 : "text-gray-500 hover:text-gray-900"
             }`}
           >
-            账号登录
+            登录账号
           </button>
           <button
             type="button"
             onClick={() => {
               setMode("register");
               setError("");
-              setSuccess("");
+              setSuccessMsg("");
             }}
-            className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition ${
+            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               mode === "register"
-                ? "bg-white text-blue-600 shadow-sm"
+                ? "bg-white text-gray-900 shadow-sm"
                 : "text-gray-500 hover:text-gray-900"
             }`}
           >
@@ -99,25 +119,25 @@ export default function Login() {
         </div>
 
         {error && (
-          <div className="mb-4 p-2.5 bg-red-50 text-red-600 text-xs rounded-md border border-red-100">
+          <div className="mb-4 p-2.5 bg-red-50 text-red-600 text-xs rounded-xl border border-red-100">
             {error}
           </div>
         )}
-        {success && (
-          <div className="mb-4 p-2.5 bg-green-50 text-green-700 text-xs rounded-md border border-green-100">
-            {success}
+        {successMsg && (
+          <div className="mb-4 p-2.5 bg-green-50 text-green-700 text-xs rounded-xl border border-green-100">
+            {successMsg}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3.5">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">邮箱地址</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-              placeholder="your@email.com"
+              className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-black transition"
+              placeholder="name@example.com"
               required
             />
           </div>
@@ -128,7 +148,7 @@ export default function Login() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+              className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-black transition"
               placeholder="••••••••"
               required
             />
@@ -141,7 +161,7 @@ export default function Login() {
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                className="w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-black transition"
                 placeholder="••••••••"
                 required
               />
@@ -151,9 +171,9 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:opacity-50 transition"
+            className="w-full py-3 bg-black text-white rounded-xl text-sm font-semibold hover:bg-gray-800 disabled:opacity-50 transition shadow-sm mt-2"
           >
-            {loading ? "处理中..." : mode === "login" ? "登录" : "立即注册"}
+            {loading ? "处理中..." : mode === "login" ? "登录查看 Feed" : "注册账号"}
           </button>
         </form>
       </div>

@@ -3,6 +3,8 @@ import { supabase } from "../lib/supabase";
 import { PLATFORMS, getDaysSinceActivity } from "@content-hub/shared";
 import QRCode from "qrcode";
 
+import type { User } from "@supabase/supabase-js";
+
 interface Monitor {
   id: number;
   platform: string;
@@ -65,7 +67,18 @@ export default function MonitorList() {
   const [pollStatus, setPollStatus] = useState("");
   const [cookieUpdated, setCookieUpdated] = useState<string | null>(null);
   const [cookieStatus, setCookieStatus] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [nowTimestamp] = useState(() => Date.now());
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        setCurrentUser(data.user);
+      }
+    });
+  }, []);
 
   const fetchMonitors = useCallback(async () => {
     setError(null);
@@ -97,20 +110,28 @@ export default function MonitorList() {
       return;
     }
 
-    const cookie = (data ?? []).find((r: any) => r.config_key === "cookie_meta");
-    const status = (data ?? []).find((r: any) => r.config_key === "cookie_status");
+    const cookie = (data ?? []).find((r: { config_key: string; updated_at?: string }) => r.config_key === "cookie_meta");
+    const status = (data ?? []).find((r: { config_key: string; config_value?: string }) => r.config_key === "cookie_status");
 
     if (cookie) {
-      setCookieUpdated(cookie.updated_at);
+      setCookieUpdated(cookie.updated_at ?? null);
     }
     if (status) {
-      setCookieStatus(status.config_value);
+      setCookieStatus(status.config_value ?? null);
     }
   }, []);
 
   useEffect(() => {
-    fetchMonitors();
-    fetchCookieInfo();
+    let ignore = false;
+    async function loadData() {
+      if (ignore) return;
+      await fetchMonitors();
+      await fetchCookieInfo();
+    }
+    loadData();
+    return () => {
+      ignore = true;
+    };
   }, [fetchMonitors, fetchCookieInfo]);
 
   // Filter monitors
@@ -118,15 +139,16 @@ export default function MonitorList() {
     if (platformFilter !== "all" && m.platform !== platformFilter) return false;
     if (statusFilter === "all") return true;
     if (statusFilter === "inactive") return !m.is_active;
+    if (statusFilter === "rate_limited") return m.status !== "normal";
     return m.status === statusFilter;
   });
 
   // CRUD operations
   const addMonitor = async (): Promise<void> => {
-    if (!urlInput.trim()) return;
-    setAdding(true);
     setAddError("");
+    if (!urlInput.trim()) return;
 
+    setAdding(true);
     try {
       const session = (await supabase.auth.getSession()).data.session;
       const token = session?.access_token ?? "";
@@ -159,8 +181,11 @@ export default function MonitorList() {
         return;
       }
 
-      // POST to monitors
+      const { data: userData } = await supabase.auth.getUser();
+
+      // POST to monitors with user_id
       const { error: postErr } = await supabase.from("monitors").insert({
+        user_id: userData.user?.id,
         platform,
         native_id,
         display_name,
@@ -186,8 +211,8 @@ export default function MonitorList() {
       setUrlInput("");
       setAdding(false);
       fetchMonitors();
-    } catch (err: any) {
-      setAddError(err.message);
+    } catch (err: unknown) {
+      setAddError(err instanceof Error ? err.message : String(err));
       setAdding(false);
     }
   };
@@ -221,21 +246,20 @@ export default function MonitorList() {
   };
 
   const renameMonitor = async (id: number, newName: string): Promise<void> => {
-    if (!newName.trim()) return;
     const { error } = await supabase
       .from("monitors")
-      .update({ display_name: newName.trim(), name_auto: false })
+      .update({ display_name: newName, name_auto: false })
       .eq("id", id);
     if (error) {
-      alert("重命名失败：" + error.message);
+      alert("修改失败：" + error.message);
       return;
     }
     fetchMonitors();
   };
 
-  // B站 QR code flow
   const startBilibiliAuth = async (): Promise<void> => {
     setShowQr(true);
+    setQrDataUrl("");
     setPollStatus("获取二维码中...");
 
     try {
@@ -263,12 +287,10 @@ export default function MonitorList() {
 
       setPollStatus("请使用B站 App 扫码");
 
-      // Generate QR code locally
       QRCode.toDataURL(json.data.qr_url, { width: 200, margin: 2 })
         .then(setQrDataUrl)
         .catch(() => {});
 
-      // Start polling
       const qrcodeKey = json.data.qrcode_key;
       let attempts = 0;
 
@@ -307,8 +329,8 @@ export default function MonitorList() {
             clearInterval(pollInterval);
             setPollStatus("二维码已过期，请重新获取");
           }
-        } catch {
-          // retry on next poll
+        } catch (_err) {
+          void _err;
         }
       }, 2000);
     } catch {
@@ -316,9 +338,8 @@ export default function MonitorList() {
     }
   };
 
-  // Cookie display helpers
   const cookieAge = cookieUpdated
-    ? Math.floor((Date.now() - new Date(cookieUpdated).getTime()) / (1000 * 60 * 60 * 24))
+    ? Math.floor((nowTimestamp - new Date(cookieUpdated).getTime()) / (1000 * 60 * 60 * 24))
     : null;
 
   if (loading) return <div className="p-6 text-gray-400">加载中...</div>;
@@ -342,9 +363,46 @@ export default function MonitorList() {
     );
   }
 
+  const copyH5Link = () => {
+    if (!currentUser) return;
+    const origin = window.location.origin.includes("admin.") 
+      ? window.location.origin.replace("admin.", "")
+      : window.location.origin;
+    const shareUrl = `${origin}/?u=${currentUser.id}`;
+    navigator.clipboard.writeText(shareUrl);
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 2000);
+  };
+
   return (
     <div className="p-4 max-w-4xl mx-auto">
-      <h1 className="text-xl font-bold mb-4">监控管理</h1>
+      {/* Top Header */}
+      <div className="flex flex-wrap items-center justify-between bg-white rounded-lg shadow-sm p-4 mb-4 border gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">监控管理</h1>
+          {currentUser && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              当前账号: <span className="font-medium text-gray-700">{currentUser.email}</span>
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {currentUser && (
+            <button
+              onClick={copyH5Link}
+              className="px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 rounded text-xs font-semibold hover:bg-blue-100 transition flex items-center gap-1"
+            >
+              {copySuccess ? "✓ 已复制专属 H5 链接" : "🔗 复制我的 H5 链接"}
+            </button>
+          )}
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded text-xs font-semibold hover:bg-gray-200 transition"
+          >
+            退出登录
+          </button>
+        </div>
+      </div>
 
       {/* Add monitor */}
       <div className="bg-white rounded-lg shadow-sm p-4 mb-4 border">
@@ -353,7 +411,7 @@ export default function MonitorList() {
             type="url"
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
-            placeholder="粘贴博主主页链接：B站(space.bilibili.com/xxx)、YouTube(@xxx)、知乎(zhihu.com/people/xxx)、抖音(v.douyin.com/xxx 或 douyin.com/user/xxx)、小红书(xhslink.com/xxx 或 xiaohongshu.com/user/profile/xxx)"
+            placeholder="粘贴博主主页链接：B站(space.bilibili.com/xxx)、YouTube(@xxx)、知乎(people/xxx)、抖音(user/xxx)、小红书(user/xxx)、X/推特(x.com/xxx 或 @xxx)"
             className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             onKeyDown={(e) => e.key === "Enter" && addMonitor()}
           />
@@ -429,8 +487,8 @@ export default function MonitorList() {
       </div>
 
       {/* Platform filter */}
-      <div className="flex gap-2 mb-4">
-        {["all", "bilibili", "youtube", "zhihu", "douyin", "xiaohongshu"].map((p) => (
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {["all", "bilibili", "youtube", "zhihu", "douyin", "xiaohongshu", "x"].map((p) => (
           <button
             key={p}
             onClick={() => setPlatformFilter(p)}

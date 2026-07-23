@@ -22,17 +22,18 @@ export default function AuthGuard({ children }: Props) {
     return () => subscription.unsubscribe();
   }, []);
 
-  if (authed === null) {
+  useEffect(() => {
+    if (authed === false) {
+      window.location.hash = "#/login";
+    }
+  }, [authed]);
+
+  if (authed === null || !authed) {
     return (
       <div className="flex items-center justify-center min-h-screen text-gray-400">
         加载中...
       </div>
     );
-  }
-
-  if (!authed) {
-    window.location.hash = "#/login";
-    return null;
   }
 
   return <>{children}</>;

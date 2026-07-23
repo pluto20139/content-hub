@@ -1,4 +1,4 @@
-export type Platform = 'bilibili' | 'youtube' | 'zhihu' | 'douyin' | 'xiaohongshu';
+export type Platform = 'bilibili' | 'youtube' | 'zhihu' | 'douyin' | 'xiaohongshu' | 'x';
 export type ContentType = 'video' | 'article' | 'question' | 'answer' | 'post';
 
 interface DeepLinkSchema {
@@ -18,6 +18,7 @@ const DEEP_LINK_SCHEMAS: DeepLinkSchema[] = [
   { platform: 'douyin', contentType: 'video', schema: 'snssdk1128://aweme/detail/{native_id}' },
   { platform: 'xiaohongshu', contentType: 'post', schema: 'xhsdiscover://item/{native_id}' },
   { platform: 'xiaohongshu', contentType: 'video', schema: 'xhsdiscover://item/{native_id}' },
+  { platform: 'x', contentType: 'post', schema: 'https://x.com/{monitor_native_id}/status/{native_id}' },
 ];
 
 export interface DeepLinkOptions {

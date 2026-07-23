@@ -7,7 +7,7 @@ if (!url || !key) {
   throw new Error("Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY");
 }
 
-let refreshPromise: Promise<any> | null = null;
+let refreshPromise: Promise<{ data: { session: unknown } }> | null = null;
 
 async function getSessionOrRefresh() {
   if (refreshPromise) {
@@ -27,11 +27,11 @@ export const supabase = createClient(url, key, {
   global: {
     fetch: async (input, init) => {
       const res = await fetch(input, init);
-      const urlStr = typeof input === "string" ? input : (input && typeof input === "object" && "url" in input ? (input as any).url : "");
+      const urlStr = typeof input === "string" ? input : (input && typeof input === "object" && "url" in input ? String((input as { url: unknown }).url) : "");
       if (res.status === 401 && !urlStr.includes("/auth/v1/")) {
         const refreshResult = await getSessionOrRefresh();
         if (refreshResult?.data?.session) {
-          const token = refreshResult.data.session.access_token;
+          const token = (refreshResult.data.session as { access_token: string }).access_token;
           const newInit: RequestInit = { ...init };
           const headers = new Headers(newInit.headers);
           headers.set("Authorization", `Bearer ${token}`);

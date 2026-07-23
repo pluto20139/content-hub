@@ -17,6 +17,7 @@ import { YoutubeAdapter } from "./adapters/youtube.js";
 import { ZhihuAdapter } from "./adapters/zhihu.js";
 import { DouyinAdapter } from "./adapters/douyin.js";
 import { XiaohongshuAdapter } from "./adapters/xiaohongshu.js";
+import { XAdapter } from "./adapters/x.js";
 import type { Monitor, CronResult, MonitorStatus, PlatformAdapter, PlatformResult } from "./adapters/types.js";
 
 const RUN_ID = `run-${Date.now()}`;
@@ -57,6 +58,8 @@ function createAdapter(platform: string): PlatformAdapter | null {
       return new DouyinAdapter();
     case "xiaohongshu":
       return new XiaohongshuAdapter();
+    case "x":
+      return new XAdapter();
     default:
       return null;
   }
@@ -144,7 +147,7 @@ async function processPlatformGroup(
       for (const raw of newContents) {
         const cleaned = cleanContent(raw);
         if (!cleaned) continue;
-        const ok = await upsertContent(cleaned, monitor.id);
+        const ok = await upsertContent(cleaned, monitor.id, monitor.user_id);
         if (ok) inserted++;
       }
 

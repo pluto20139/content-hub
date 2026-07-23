@@ -36,4 +36,10 @@ export const PLATFORMS: Record<string, PlatformInfo> = {
     tagBg: '#FCE8EF',
     tagText: '#CC1E3A',
   },
+  x: {
+    name: 'X (推特)',
+    brandColor: '#0F1419',
+    tagBg: '#F1F1F1',
+    tagText: '#0F1419',
+  },
 } as const;

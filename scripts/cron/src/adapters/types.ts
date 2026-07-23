@@ -1,9 +1,10 @@
-export type Platform = "bilibili" | "youtube" | "zhihu" | "douyin" | "xiaohongshu";
+export type Platform = "bilibili" | "youtube" | "zhihu" | "douyin" | "xiaohongshu" | "x";
 export type MonitorStatus = "normal" | "cookie_expired" | "rate_limited";
 export type ContentType = "video" | "article" | "question" | "answer" | "post";
 
 export interface Monitor {
   id: number;
+  user_id?: string | null;
   platform: Platform;
   native_id: string;
   display_name: string;
@@ -51,7 +52,7 @@ export interface PlatformAdapter {
 }
 
 export interface ContentWriter {
-  upsert(content: RawContent, monitorId: number): Promise<boolean>;
+  upsert(content: RawContent, monitorId: number, userId?: string | null): Promise<boolean>;
   updateMonitorStatus(
     monitorId: number,
     updates: { status: MonitorStatus; failCount: number; lastSync: boolean; newContent: boolean },

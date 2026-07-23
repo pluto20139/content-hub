@@ -23,12 +23,13 @@ const PAGE_SIZE = 20;
 
 interface Props {
   platform: string | null;
+  userId?: string | null;
 }
 
 // Memory cache object to preserve tab switching states instantly
 const memoryCache: Record<string, { contents: Content[]; hasMore: boolean }> = {};
 
-export default function Feed({ platform }: Props) {
+export default function Feed({ platform, userId }: Props) {
   const [contents, setContents] = useState<Content[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +65,10 @@ export default function Feed({ platform }: Props) {
         .order("published_at", { ascending: false })
         .range(offset, offset + PAGE_SIZE - 1);
 
+      if (userId) {
+        query = query.eq("user_id", userId);
+      }
+
       if (isHiddenTab) {
         // Hidden tab: show auto-expired (is_display=false) OR manually hidden (localStorage)
         if (hiddenIds.size > 0) {
@@ -92,24 +97,24 @@ export default function Feed({ platform }: Props) {
         return;
       }
 
-      const items = (data ?? []).map((item: any) => ({
-        id: item.id,
-        platform: item.platform,
-        native_id: item.native_id,
-        content_type: item.content_type,
-        title: item.title,
-        cover_url: item.cover_url,
-        original_url: item.original_url,
-        published_at: item.published_at,
-        summary: item.summary,
-        summary_status: item.summary_status,
-        monitor_native_id: item.monitors?.native_id ?? null,
+      const items = (data ?? []).map((item: Record<string, unknown>) => ({
+        id: item.id as number,
+        platform: item.platform as string,
+        native_id: item.native_id as string,
+        content_type: item.content_type as string,
+        title: item.title as string,
+        cover_url: (item.cover_url as string | null) ?? null,
+        original_url: item.original_url as string,
+        published_at: item.published_at as string,
+        summary: (item.summary as string | null) ?? null,
+        summary_status: (item.summary_status as string | null) ?? null,
+        monitor_native_id: (item.monitors as { native_id?: string } | null)?.native_id ?? null,
       })) as Content[];
 
       if (offset === 0) {
         setContents(items);
         // Write to caches
-        const cacheKey = platform ?? "all";
+        const cacheKey = `${userId || 'anon'}:${platform ?? "all"}`;
         memoryCache[cacheKey] = { contents: items, hasMore: items.length === PAGE_SIZE };
         setCached(`feed:${cacheKey}:offset:0`, items);
       } else {
@@ -118,22 +123,27 @@ export default function Feed({ platform }: Props) {
       setHasMore(items.length === PAGE_SIZE);
       setLoading(false);
     },
-    [platform],
+    [platform, userId],
   );
 
   // Tab switching cache restore and query initialization
   useEffect(() => {
-    const cacheKey = platform ?? "all";
-    const cached = memoryCache[cacheKey]?.contents ?? getCached<Content[]>(`feed:${cacheKey}:offset:0`) ?? [];
-    setContents(cached);
-    setHasMore(memoryCache[cacheKey]?.hasMore ?? true);
-    
-    // Show loading skeleton only when no cache is available
-    setLoading(cached.length === 0);
-    setError(null);
-
-    fetchPage(0);
-  }, [platform, fetchPage]);
+    let ignore = false;
+    async function initFeed() {
+      if (ignore) return;
+      const cacheKey = `${userId || 'anon'}:${platform ?? "all"}`;
+      const cached = memoryCache[cacheKey]?.contents ?? getCached<Content[]>(`feed:${cacheKey}:offset:0`) ?? [];
+      setContents(cached);
+      setHasMore(memoryCache[cacheKey]?.hasMore ?? true);
+      setLoading(cached.length === 0);
+      setError(null);
+      await fetchPage(0);
+    }
+    initFeed();
+    return () => {
+      ignore = true;
+    };
+  }, [platform, userId, fetchPage]);
 
   // Infinite scroll observer - dependencies minimized (doesn't depend on contents.length)
   useEffect(() => {
@@ -204,8 +214,8 @@ export default function Feed({ platform }: Props) {
       const updated = originalContents.filter((c) => c.id !== id);
       memoryCache[cacheKey] = { contents: updated, hasMore };
       setCached(`feed:${cacheKey}:offset:0`, updated);
-    } catch (err: any) {
-      console.error("Failed to hide content:", err.message);
+    } catch (err: unknown) {
+      console.error("Failed to hide content:", err instanceof Error ? err.message : String(err));
       setContents(originalContents);
       showToast("隐藏失败，请重试");
     } finally {

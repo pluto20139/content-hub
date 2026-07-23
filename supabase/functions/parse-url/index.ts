@@ -529,8 +529,24 @@ async function handleRequest(req: Request): Promise<Response> {
       result = await parseDouyin(resolvedUrl);
     } else if (XIAOHONGSHU_SHORT_RE.test(resolvedUrl) || XIAOHONGSHU_USER_RE.test(resolvedUrl)) {
       result = await parseXiaohongshu(resolvedUrl);
+    } else if (/(?:x\.com|twitter\.com)\/([a-zA-Z0-9_]{1,15})/i.test(resolvedUrl)) {
+      const match = /(?:x\.com|twitter\.com)\/([a-zA-Z0-9_]{1,15})/i.exec(resolvedUrl);
+      const handle = match ? match[1] : "";
+      const reserved = ["home", "explore", "notifications", "messages", "search", "settings", "i", "tos", "privacy"];
+      if (handle && !reserved.includes(handle.toLowerCase())) {
+        result = {
+          success: true,
+          data: {
+            platform: "x",
+            native_id: handle,
+            display_name: `@${handle}`,
+          },
+        };
+      } else {
+        result = { success: false, error: { code: "INVALID_URL", message: "无效的 X (Twitter) 用户主页链接" } };
+      }
     } else {
-      result = { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法识别该平台，目前支持 B站 / YouTube / 知乎 / 抖音 / 小红书" } };
+      result = { success: false, error: { code: "UNKNOWN_PLATFORM", message: "无法识别该平台，目前支持 B站 / YouTube / 知乎 / 抖音 / 小红书 / X (推特)" } };
     }
   } catch (err) {
     console.error("parse-url internal error:", err);

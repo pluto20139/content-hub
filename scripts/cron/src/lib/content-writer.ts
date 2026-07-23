@@ -2,7 +2,7 @@ import { supabase } from "./supabase.js";
 import type { RawContent, MonitorStatus } from "../adapters/types.js";
 
 const UPSERT_COLUMNS =
-  "platform,native_id,content_type,title,cover_url,original_url,published_at,monitor_id";
+  "platform,native_id,content_type,title,cover_url,original_url,published_at,monitor_id,user_id";
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -15,8 +15,9 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 export async function upsertContent(
   content: RawContent,
   monitorId: number,
+  userId?: string | null,
 ): Promise<boolean> {
-  const body = {
+  const body: Record<string, unknown> = {
     platform: content.platform,
     native_id: content.native_id,
     content_type: content.content_type,
@@ -26,6 +27,10 @@ export async function upsertContent(
     published_at: content.published_at,
     monitor_id: monitorId,
   };
+
+  if (userId) {
+    body.user_id = userId;
+  }
 
   const res = await fetch(
     `${SUPABASE_URL}/rest/v1/contents?columns=${encodeURIComponent(UPSERT_COLUMNS)}`,

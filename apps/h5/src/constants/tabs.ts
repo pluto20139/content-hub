@@ -13,5 +13,6 @@ export const TABS: TabConfig[] = [
   { key: "zhihu", label: PLATFORMS.zhihu.name, platform: "zhihu" },
   { key: "douyin", label: PLATFORMS.douyin.name, platform: "douyin" },
   { key: "xiaohongshu", label: PLATFORMS.xiaohongshu.name, platform: "xiaohongshu" },
+  { key: "x", label: PLATFORMS.x.name, platform: "x" },
   { key: "hidden", label: "已隐藏", platform: "hidden" },
 ];

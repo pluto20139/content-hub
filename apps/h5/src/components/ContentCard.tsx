@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { PLATFORMS, formatRelativeTime, getDeepLink, detectEnvironment } from "@content-hub/shared";
+import { PLATFORMS, formatRelativeTime, getDeepLink, detectEnvironment, isDesktopBrowser } from "@content-hub/shared";
 import { HideButton } from "./HideButton.tsx";
 import { UnhideButton } from "./UnhideButton.tsx";
 import { FallbackModal } from "./FallbackModal.tsx";
@@ -76,8 +76,8 @@ export default function ContentCard({ content, onHide, onUnhide, showHideButton,
         throw new Error(data?.error?.message ?? "重试失败");
       }
       setLocalStatus("pending");
-    } catch (err: any) {
-      console.error("Failed to retry summary:", err.message ?? err);
+    } catch (err: unknown) {
+      console.error("Failed to retry summary:", err instanceof Error ? err.message : String(err));
     } finally {
       setIsRetrying(false);
     }
@@ -96,6 +96,12 @@ export default function ContentCard({ content, onHide, onUnhide, showHideButton,
       return;
     }
 
+    // Desktop browser → open original URL directly, skip Deep Link + 2.5s fallback
+    if (isDesktopBrowser(ua)) {
+      window.open(originalUrl, "_blank");
+      return;
+    }
+
     // System browser → try Deep Link
     const deepLink = getDeepLink(
       content.platform,
@@ -108,6 +114,7 @@ export default function ContentCard({ content, onHide, onUnhide, showHideButton,
     );
 
     if (deepLink) {
+      // eslint-disable-next-line prefer-const
       let timeoutId: ReturnType<typeof setTimeout>;
 
       const cleanup = (): void => {

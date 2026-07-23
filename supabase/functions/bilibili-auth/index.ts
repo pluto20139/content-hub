@@ -87,7 +87,7 @@ async function handleQrcode(): Promise<Response> {
 
 // ── Poll ──────────────────────────────────────────────
 
-async function handlePoll(qrcodeKey: string): Promise<Response> {
+async function handlePoll(qrcodeKey: string, userId?: string): Promise<Response> {
   const res = await fetch(`${BILIBILI_POLL_URL}?qrcode_key=${encodeURIComponent(qrcodeKey)}`, {
     headers: { "User-Agent": "ContentHub/1.0" },
   });
@@ -100,33 +100,35 @@ async function handlePoll(qrcodeKey: string): Promise<Response> {
   }
 
   const data = await res.json();
+  if (data.code !== 0 || !data.data) {
+    return json({
+      success: false,
+      error: { code: "INTERNAL_ERROR", message: "B站轮询接口返回异常" },
+    }, 500);
+  }
 
-  if (data.code === 86038) {
+  const pollCode = data.data.code;
+
+  if (pollCode === 86101) {
+    return json({ success: true, data: { status: "not_scanned" } });
+  }
+
+  if (pollCode === 86090) {
+    return json({ success: true, data: { status: "scanned_not_confirmed" } });
+  }
+
+  if (pollCode === 86038) {
     return json({ success: true, data: { status: "expired" } });
   }
 
-  if (data.code === 86039 || data.code === 86101 || data.code === 86090) {
-    return json({ success: true, data: { status: "waiting" } });
-  }
-
-  if (data.code === 0) {
-    // ── Scan successful, extract cookies from response headers ──
-    const setCookieHeaders = res.headers.getSetCookie?.() ?? [];
-    const cookies = setCookieHeaders.map((h) => h.split(";")[0]).join("; ");
-
-    if (!cookies) {
-      return json({
-        success: false,
-        error: { code: "INTERNAL_ERROR", message: "登录成功但 Cookie 保存失败，请重试" },
-      });
-    }
+  if (pollCode === 0) {
+    const cookieHeader = res.headers.get("set-cookie") ?? "";
+    const urlStr = data.data.url ?? "";
+    const combined = [cookieHeader, urlStr].filter(Boolean).join("; ");
 
     const now = new Date().toISOString();
-
-    // Write cookie to vault
-    const cookieOk = await vaultUpsertCookie(cookies);
-
-    if (!cookieOk) {
+    const vaultOk = await vaultUpsertCookie(combined);
+    if (!vaultOk) {
       return json({
         success: false,
         error: {
@@ -136,15 +138,15 @@ async function handlePoll(qrcodeKey: string): Promise<Response> {
       }, 500);
     }
 
-    // Update cookie_status to valid (non-critical, warn on failure)
     const { ok: statusOk } = await postgrestUpsert("platform_configs", {
+      user_id: userId,
       platform: "bilibili",
       config_key: "cookie_status",
       config_value: "valid",
       updated_at: now,
     });
-    // Write cookie_meta (timestamp only, non-sensitive) for Admin display
     const { ok: metaOk } = await postgrestUpsert("platform_configs", {
+      user_id: userId,
       platform: "bilibili",
       config_key: "cookie_meta",
       config_value: now,
@@ -157,7 +159,6 @@ async function handlePoll(qrcodeKey: string): Promise<Response> {
     return json({ success: true, data: { status: "success" } });
   }
 
-  // Unknown code
   return json({
     success: false,
     error: {
@@ -194,7 +195,8 @@ async function handleRequest(req: Request): Promise<Response> {
       if (!body.qrcode_key) {
         return json({ success: false, error: { code: "INTERNAL_ERROR", message: "缺少 qrcode_key 参数" } }, 400);
       }
-      return handlePoll(body.qrcode_key);
+      const userId = getUserIdFromAuthHeader(req);
+      return handlePoll(body.qrcode_key, userId);
     }
 
     return json({ success: false, error: { code: "INTERNAL_ERROR", message: "无效的 action，仅支持 qrcode / poll" } }, 400);

@@ -20,7 +20,12 @@ interface Props {
   onBack: () => void;
 }
 
-const SUPABASE_URL = "https://betbudnsetunpmdhjipo.supabase.co";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SITE_URL = import.meta.env.VITE_SITE_URL || window.location.origin;
+
+if (!SUPABASE_URL) {
+  throw new Error("Missing VITE_SUPABASE_URL");
+}
 
 export default function MyMonitors({ onBack }: Props) {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
@@ -172,7 +177,7 @@ export default function MyMonitors({ onBack }: Props) {
 
   const handleCopyShareUrl = () => {
     if (!currentUser) return;
-    const url = `https://mpchub.top?u=${currentUser.id}`;
+    const url = `${SITE_URL.replace(/\/$/, "")}?u=${currentUser.id}`;
     navigator.clipboard.writeText(url);
     setCopySuccess(true);
     setTimeout(() => setCopySuccess(false), 2000);

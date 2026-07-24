@@ -3,6 +3,11 @@ import { corsHeaders } from "../_shared/cors.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+const SITE_URL = Deno.env.get("SITE_URL") || Deno.env.get("PUBLIC_SITE_URL") || "https://mpchub.top";
+
+function getShareUrl(userId: string) {
+  return `${SITE_URL.replace(/\/$/, "")}?u=${userId}`;
+}
 
 function jsonResponse(data: any, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -32,7 +37,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const user = authData.user;
-  const isAdmin = user.app_metadata?.is_admin === true || user.email === "admin@mpchub.top";
+  const isAdmin = user.app_metadata?.is_admin === true;
 
   if (!isAdmin) {
     return jsonResponse({ error: "Forbidden: Super-Admin privileges required" }, 403);
@@ -103,7 +108,7 @@ Deno.serve(async (req: Request) => {
         last_sign_in_at: u.last_sign_in_at,
         is_admin: u.app_metadata?.is_admin === true,
         monitor_count: monitorCounts[u.id] || 0,
-        share_url: `https://mpchub.top?u=${u.id}`,
+        share_url: getShareUrl(u.id),
       }));
 
       return jsonResponse(usersList);
@@ -111,10 +116,20 @@ Deno.serve(async (req: Request) => {
 
     // POST /users/create
     if (method === "POST" && pathname.endsWith("/users/create")) {
-      const body = await req.json();
-      const { email, password } = body;
+      const body = await req.json().catch(() => ({}));
+      const email = typeof body.email === "string" ? body.email.trim() : "";
+      const password = typeof body.password === "string" ? body.password : "";
+
       if (!email || !password) {
         return jsonResponse({ error: "Missing email or password" }, 400);
+      }
+
+      if (!/^\S+@\S+\.\S+$/.test(email)) {
+        return jsonResponse({ error: "Invalid email format" }, 400);
+      }
+
+      if (password.length < 8) {
+        return jsonResponse({ error: "Password must be at least 8 characters" }, 400);
       }
 
       const { data: newUser, error } = await supabaseAdmin.auth.admin.createUser({
@@ -133,7 +148,7 @@ Deno.serve(async (req: Request) => {
           id: newUser.user.id,
           email: newUser.user.email,
           created_at: newUser.user.created_at,
-          share_url: `https://mpchub.top?u=${newUser.user.id}`,
+          share_url: getShareUrl(newUser.user.id),
         },
       });
     }
@@ -171,11 +186,19 @@ Deno.serve(async (req: Request) => {
     if (method === "PATCH" && pathname.includes("/monitors/")) {
       const parts = pathname.split("/");
       const monitorId = parts[parts.length - 1];
-      const body = await req.json();
+      const body = await req.json().catch(() => ({}));
+      const allowedFields = ["display_name", "is_active", "status", "fail_count", "last_error", "last_checked_at"];
+      const updatePayload = Object.fromEntries(
+        Object.entries(body).filter(([key]) => allowedFields.includes(key)),
+      );
+
+      if (Object.keys(updatePayload).length === 0) {
+        return jsonResponse({ error: "No valid fields to update" }, 400);
+      }
 
       const { data, error } = await supabaseAdmin
         .from("monitors")
-        .update(body)
+        .update(updatePayload)
         .eq("id", monitorId)
         .select()
         .single();
@@ -224,11 +247,19 @@ Deno.serve(async (req: Request) => {
     if (method === "PATCH" && pathname.includes("/contents/")) {
       const parts = pathname.split("/");
       const contentId = parts[parts.length - 1];
-      const body = await req.json();
+      const body = await req.json().catch(() => ({}));
+      const allowedFields = ["title", "cover_url", "original_url", "is_display", "summary", "summary_status", "content_type", "published_at"];
+      const updatePayload = Object.fromEntries(
+        Object.entries(body).filter(([key]) => allowedFields.includes(key)),
+      );
+
+      if (Object.keys(updatePayload).length === 0) {
+        return jsonResponse({ error: "No valid fields to update" }, 400);
+      }
 
       const { data, error } = await supabaseAdmin
         .from("contents")
-        .update(body)
+        .update(updatePayload)
         .eq("id", contentId)
         .select()
         .single();

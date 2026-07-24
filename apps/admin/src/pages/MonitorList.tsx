@@ -18,7 +18,11 @@ interface Monitor {
   created_at: string;
 }
 
-const SUPABASE_URL = "https://betbudnsetunpmdhjipo.supabase.co";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+
+if (!SUPABASE_URL) {
+  throw new Error("Missing VITE_SUPABASE_URL");
+}
 
 const STATUS_FILTERS = [
   { key: "all", label: "全部状态" },

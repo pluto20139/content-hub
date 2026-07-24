@@ -20,7 +20,7 @@ export default function Login() {
     }
 
     const user = data.user;
-    const isAdmin = user?.app_metadata?.is_admin === true || user?.email === "admin@mpchub.top";
+    const isAdmin = user?.app_metadata?.is_admin === true;
 
     if (!isAdmin) {
       await supabase.auth.signOut();
@@ -65,7 +65,7 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-black focus:bg-white transition-all"
-              placeholder="admin@mpchub.top"
+              placeholder="admin@example.com"
               required
             />
           </div>

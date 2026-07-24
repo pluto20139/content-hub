@@ -11,7 +11,12 @@ interface UserItem {
   share_url: string;
 }
 
-const SUPABASE_URL = "https://betbudnsetunpmdhjipo.supabase.co";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SITE_URL = import.meta.env.VITE_SITE_URL || window.location.origin;
+
+if (!SUPABASE_URL) {
+  throw new Error("Missing VITE_SUPABASE_URL");
+}
 
 export default function UserList() {
   const [users, setUsers] = useState<UserItem[]>([]);
@@ -26,6 +31,7 @@ export default function UserList() {
 
   const fetchUsers = useCallback(async () => {
     try {
+      setError(null);
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
@@ -78,7 +84,7 @@ export default function UserList() {
       setEmailInput("");
       setPasswordInput("");
       setShowModal(false);
-      fetchUsers();
+      await fetchUsers();
     } catch (err: any) {
       setCreateError(err.message || "开通账号失败");
     } finally {
@@ -86,10 +92,15 @@ export default function UserList() {
     }
   };
 
-  const handleCopyLink = (userId: string, shareUrl: string) => {
-    navigator.clipboard.writeText(shareUrl);
-    setCopiedId(userId);
-    setTimeout(() => setCopiedId(null), 2000);
+  const handleCopyLink = async (userId: string, shareUrl: string) => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopiedId(userId);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (err) {
+      console.error("Copy link failed:", err);
+      setError("复制链接失败，请手动复制");
+    }
   };
 
   return (

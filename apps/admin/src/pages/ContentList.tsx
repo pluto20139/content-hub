@@ -18,7 +18,11 @@ interface ContentItem {
   monitors?: { display_name: string } | null;
 }
 
-const SUPABASE_URL = "https://betbudnsetunpmdhjipo.supabase.co";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+
+if (!SUPABASE_URL) {
+  throw new Error("Missing VITE_SUPABASE_URL");
+}
 
 export default function ContentList() {
   const [contents, setContents] = useState<ContentItem[]>([]);

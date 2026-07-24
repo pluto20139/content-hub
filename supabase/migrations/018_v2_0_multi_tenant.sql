@@ -77,7 +77,7 @@ CREATE OR REPLACE VIEW platform_configs_admin AS
     END AS config_value
   FROM platform_configs;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.platform_configs_admin TO authenticated;
+GRANT SELECT ON public.platform_configs_admin TO authenticated;
 
 -- 6. 创建索引，优化多租户查询
 CREATE INDEX IF NOT EXISTS idx_monitors_user_platform ON monitors (user_id, platform);

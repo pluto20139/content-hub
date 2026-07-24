@@ -330,13 +330,63 @@ Authorization: Bearer <SERVICE_ROLE_KEY>
 
 ---
 
-## 6. 部署信息 (腾讯云)
+## 6. 部署与服务器运维信息 (腾讯云)
 
-- **公网 IP**：`124.222.54.39`
-- **Nginx 域名配置**：
-  - H5 移动端：`https://mpchub.top` (部署目录: `/opt/content-hub/apps/h5/dist`)
-  - Admin 管理端：`https://admin.mpchub.top` (部署目录: `/opt/content-hub/apps/admin/dist`)
-- **PM2 守护服务**：`content-hub-cron` (运行脚本: `/opt/content-hub/scripts/cron/dist/scheduler.js`)
+### 6.1 SSH 连接凭证与服务器环境
+
+| 属性 | 配置值 | 说明 |
+|---|---|---|
+| **主机 IP / Host** | `124.222.54.39` | 腾讯云广州/上海区 Linux 生产服务器公网 IP |
+| **SSH 登录用户名** | `root` | 最高管理员权限账号 |
+| **SSH 端口** | `22` | 标准 SSH 服务端口 |
+| **认证方式** | 密钥 / 密码 | `ssh root@124.222.54.39` (建议配合本地 SSH Key 快捷免密连接) |
+| **服务器操作系统** | Ubuntu / TencentOS Server | 运行 Linux x86_64 架构 |
+
+### 6.2 服务器项目目录与存储布局
+
+| 目录/文件路径 | 用途描述 |
+|---|---|
+| `/opt/content-hub` | **服务器项目根目录**（Git 仓库映射路径，执行 `git pull` 主入口） |
+| `/opt/content-hub/.env.production` | **生产环境变量配置文件**（包含 `SUPABASE_SERVICE_ROLE_KEY`、`TWITTER_AUTH_TOKEN` 等隐私秘钥） |
+| `/opt/content-hub/apps/h5/dist` | **H5 移动端 SPA 部署目录**（Nginx 静态根目录，域名 `mpchub.top`） |
+| `/opt/content-hub/apps/admin/dist` | **Admin 管理端 SPA 部署目录**（Nginx 静态根目录，域名 `admin.mpchub.top`） |
+| `/opt/content-hub/scripts/cron` | **定时抓取引擎服务目录**（运行 `node` / `pm2` 调度） |
+
+### 6.3 服务托管与容器架构 (PM2 + Docker Compose + Nginx)
+
+1. **PM2 进程守护 (Node.js 定时引擎)**：
+   - **进程名称**：`content-hub-cron`
+   - **运行文件**：`/opt/content-hub/scripts/cron/dist/index.js`（或 `scheduler.js`）
+   - **作用**：每 30 分钟轮询抓取 6 平台最新动态并异步请求 Dify AI 总结卡片。
+2. **Docker Compose 容器化服务 (RSSHub + Redis)**：
+   - **配置文件**：`/opt/content-hub/docker-compose.yml`
+   - **包含服务**：`rsshub` (自部署 RSS 抓取服务，监听 1200 端口) + `redis` (缓存服务)
+   - **作用**：提供知乎、X (Twitter)、抖音、小红书的 Feed XML 抓取中转。
+3. **Nginx Web 反向代理与静态托管**：
+   - **监听端口**：`80` (HTTP，自动重定向至 443) 和 `443` (HTTPS，配置 SSL 证书)
+   - **域名解析**：
+     - `https://mpchub.top` -> 指向 `/opt/content-hub/apps/h5/dist`
+     - `https://admin.mpchub.top` -> 指向 `/opt/content-hub/apps/admin/dist`
+
+### 6.4 常用部署与运维命令速查
+
+```bash
+# 1. 部署/更新 Cron 抓取引擎 (Git 拉取 -> 编译 -> 重启 PM2)
+ssh root@124.222.54.39 "cd /opt/content-hub && git pull origin main && pnpm --filter @content-hub/cron build && pm2 restart content-hub-cron"
+
+# 2. 本地构建并上传 H5 SPA 前端产物
+pnpm --filter h5 build && scp -r apps/h5/dist/* root@124.222.54.39:/opt/content-hub/apps/h5/dist/
+
+# 3. 本地构建并上传 Admin SPA 管理端产物
+pnpm --filter admin build && scp -r apps/admin/dist/* root@124.222.54.39:/opt/content-hub/apps/admin/dist/
+
+# 4. 查看 PM2 定时任务运行日志与状态
+ssh root@124.222.54.39 "pm2 logs content-hub-cron --lines 100"
+ssh root@124.222.54.39 "pm2 status"
+
+# 5. 重启 RSSHub 容器 (更新环境变量后)
+ssh root@124.222.54.39 "cd /opt/content-hub && docker compose --env-file .env.production up -d --force-recreate rsshub"
+```
 
 ---
 

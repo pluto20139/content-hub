@@ -19,11 +19,13 @@ interface Content {
   monitor_native_id?: string | null;
 }
 
-function getPlaceholderCover(platform: string): string {
-  const color = PLATFORMS[platform]?.brandColor ?? "#999";
-  const name = PLATFORMS[platform]?.name ?? "";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" fill="${color}"><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="18" font-family="-apple-system,sans-serif">${name}</text></svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+function getMainText(content: Content): string {
+  const title = content.title?.trim();
+  const summary = (content.summary || "").replace(/<think>[\s\S]*?<\/think>/, "").trim();
+
+  if (title) return title;
+  if (summary) return summary;
+  return "暂无标题";
 }
 
 interface Props {
@@ -44,16 +46,8 @@ export default function ContentCard({ content, onHide, onUnhide, showHideButton,
 
   const info = PLATFORMS[content.platform];
   const summaryStatus = localStatus || content.summary_status || "none";
-
-  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement>): void => {
-    const img = e.currentTarget;
-    if (content.cover_url && !img.src.includes("/functions/v1/image-proxy")) {
-      const proxyUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/image-proxy?url=${encodeURIComponent(content.cover_url)}`;
-      img.src = proxyUrl;
-    } else {
-      img.src = getPlaceholderCover(content.platform);
-    }
-  };
+  const mainText = getMainText(content);
+  const cleanSummary = (content.summary || "").replace(/<think>[\s\S]*?<\/think>/, "").trim();
 
   const handleToggleSummary = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -167,7 +161,6 @@ export default function ContentCard({ content, onHide, onUnhide, showHideButton,
     }
 
     if (summaryStatus === "success") {
-      const cleanSummary = (content.summary || "").replace(/<think>[\s\S]*?<\/think>/, "").trim();
       return (
         <div className="p-3 rounded-lg" style={{ background: "#F9F9F9", border: "0.5px solid rgba(0,0,0,0.06)" }}>
           <div className="flex items-center gap-1.5 mb-2 select-none" style={{ fontSize: "11px", color: "#8E8E93", fontWeight: 500 }}>
@@ -208,7 +201,6 @@ export default function ContentCard({ content, onHide, onUnhide, showHideButton,
       <div
         onClick={handleClick}
         onKeyDown={(e) => {
-          // If keypress is inside summary section, do not trigger card link click
           if (e.target instanceof HTMLElement && e.target.closest(".summary-container")) {
             return;
           }
@@ -233,23 +225,8 @@ export default function ContentCard({ content, onHide, onUnhide, showHideButton,
           {showUnhideButton && onUnhide && (
             <UnhideButton onUnhide={() => onUnhide(content.id)} />
           )}
-          <img
-            src={content.cover_url ?? getPlaceholderCover(content.platform)}
-            alt={content.title}
-            onError={handleImageError}
-            referrerPolicy="no-referrer"
-            loading="lazy"
-            decoding="async"
-            width={72}
-            height={72}
-            className="w-[72px] h-[72px] object-cover shrink-0"
-            style={{ borderRadius: "10px", background: "#F2F2F7" }}
-          />
-          <div className="flex flex-col flex-1 min-w-0 justify-between">
-            <h3 className="font-medium leading-snug line-clamp-2 text-[#1C1C1E]" style={{ fontSize: "15px" }}>
-              {content.title}
-            </h3>
-            <div className="flex items-center gap-2 mt-1 select-none">
+          <div className="flex flex-col flex-1 min-w-0 justify-between gap-2">
+            <div className="flex items-center gap-2 select-none">
               <span
                 className="text-[11px] px-1.5 py-0.5 rounded font-medium shrink-0"
                 style={{
@@ -259,21 +236,36 @@ export default function ContentCard({ content, onHide, onUnhide, showHideButton,
               >
                 {info?.name ?? content.platform}
               </span>
-              <span className="text-xs text-[#8E8E93]">
+              <span className="text-[11px] text-[#8E8E93] truncate min-w-0">
+                {content.native_id}
+              </span>
+              <span className="text-xs text-[#C7C7CC] ml-auto shrink-0">
                 {formatRelativeTime(new Date(content.published_at))}
               </span>
-              {summaryStatus !== "none" && (
-                <button
-                  onClick={handleToggleSummary}
-                  className="ml-auto flex items-center gap-0.5 text-xs font-normal text-[#8E8E93] hover:text-[#1C1C1E] transition-colors shrink-0 z-10 focus:outline-none"
-                >
-                  <span>AI 要点</span>
-                  <span className={`inline-block transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`} style={{ fontSize: "10px", marginLeft: "2px" }}>
-                    ▾
-                  </span>
-                </button>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <h3 className="font-medium leading-snug line-clamp-2 text-[#1C1C1E]" style={{ fontSize: "15px" }}>
+                {mainText}
+              </h3>
+              {content.summary && cleanSummary && mainText !== cleanSummary && (
+                <p className="text-[13px] text-[#6E6E73] leading-relaxed line-clamp-3 whitespace-pre-line">
+                  {cleanSummary}
+                </p>
               )}
             </div>
+
+            {summaryStatus !== "none" && (
+              <button
+                onClick={handleToggleSummary}
+                className="self-start flex items-center gap-0.5 text-xs font-normal text-[#8E8E93] hover:text-[#1C1C1E] transition-colors shrink-0 z-10 focus:outline-none"
+              >
+                <span>AI 要点</span>
+                <span className={`inline-block transition-transform duration-300 ${isExpanded ? "rotate-180" : ""}`} style={{ fontSize: "10px", marginLeft: "2px" }}>
+                  ▾
+                </span>
+              </button>
+            )}
           </div>
         </div>
 

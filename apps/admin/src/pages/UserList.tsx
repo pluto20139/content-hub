@@ -12,7 +12,6 @@ interface UserItem {
 }
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SITE_URL = import.meta.env.VITE_SITE_URL || window.location.origin;
 
 if (!SUPABASE_URL) {
   throw new Error("Missing VITE_SUPABASE_URL");

@@ -210,7 +210,7 @@ export default function Feed({ platform, userId }: Props) {
     try {
       addHiddenId(id);
 
-      const cacheKey = platform ?? "all";
+      const cacheKey = `${userId || 'anon'}:${platform ?? "all"}`;
       const updated = originalContents.filter((c) => c.id !== id);
       memoryCache[cacheKey] = { contents: updated, hasMore };
       setCached(`feed:${cacheKey}:offset:0`, updated);
@@ -230,7 +230,7 @@ export default function Feed({ platform, userId }: Props) {
   const handleUnhide = async (id: number) => {
     removeHiddenId(id);
     setContents((prev) => prev.filter((c) => c.id !== id));
-    const cacheKey = platform ?? "all";
+    const cacheKey = `${userId || 'anon'}:${platform ?? "all"}`;
     const updated = contentsRef.current.filter((c) => c.id !== id);
     memoryCache[cacheKey] = { contents: updated, hasMore };
     setCached(`feed:${cacheKey}:offset:0`, updated);

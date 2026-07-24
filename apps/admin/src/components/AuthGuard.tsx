@@ -10,13 +10,25 @@ export default function AuthGuard({ children }: Props) {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      setAuthed(!!data.session);
+      const user = data.session?.user;
+      const isAdmin = user?.app_metadata?.is_admin === true || user?.email === "admin@mpchub.top";
+      if (user && !isAdmin) {
+        supabase.auth.signOut().then(() => setAuthed(false));
+      } else {
+        setAuthed(Boolean(user && isAdmin));
+      }
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthed(!!session);
+      const user = session?.user;
+      const isAdmin = user?.app_metadata?.is_admin === true || user?.email === "admin@mpchub.top";
+      if (user && !isAdmin) {
+        supabase.auth.signOut().then(() => setAuthed(false));
+      } else {
+        setAuthed(Boolean(user && isAdmin));
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -31,7 +43,7 @@ export default function AuthGuard({ children }: Props) {
   if (authed === null || !authed) {
     return (
       <div className="flex items-center justify-center min-h-screen text-gray-400">
-        加载中...
+        校验管理员权限中...
       </div>
     );
   }

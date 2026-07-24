@@ -10,6 +10,85 @@ interface RawContent {
   published_at: string;
 }
 
+async function fetchFromSyndication(handle: string): Promise<RawContent[]> {
+  const url = `https://syndication.twitter.com/srv/timeline-profile/screen-name/${handle}`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    });
+
+    if (!res.ok) {
+      console.warn(`[x-fetcher] Syndication returned HTTP ${res.status}`);
+      return [];
+    }
+
+    const html = await res.text();
+    const match = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
+    if (!match) {
+      console.warn("[x-fetcher] Syndication __NEXT_DATA__ tag not found");
+      return [];
+    }
+
+    const data = JSON.parse(match[1]);
+    const entries = data?.props?.pageProps?.timeline?.entries || [];
+    const items: RawContent[] = [];
+
+    for (const entry of entries) {
+      const tweet = entry?.content?.tweet;
+      if (!tweet) continue;
+      const tweetId = tweet.id_str || String(tweet.id || "");
+      const fullText = tweet.full_text || tweet.text || "";
+      const cleanTitle = fullText
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/<[^>]+>/g, "")
+        .trim();
+
+      if (!cleanTitle) continue;
+
+      let coverUrl: string | null = null;
+      const media = tweet.entities?.media || tweet.extended_entities?.media || [];
+      if (media.length > 0 && media[0]?.media_url_https) {
+        coverUrl = media[0].media_url_https;
+      }
+
+      let pubDateIso = new Date().toISOString();
+      if (tweet.created_at) {
+        try {
+          const parsed = new Date(tweet.created_at);
+          if (!isNaN(parsed.getTime())) {
+            pubDateIso = parsed.toISOString();
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      items.push({
+        platform: "x",
+        native_id: tweetId,
+        content_type: "post",
+        title: cleanTitle,
+        cover_url: coverUrl,
+        original_url: `https://x.com/${handle}/status/${tweetId}`,
+        published_at: pubDateIso,
+      });
+    }
+
+    console.log(`[x-fetcher] Syndication parsed ${items.length} tweets for @${handle}`);
+    return items;
+  } catch (err: unknown) {
+    console.warn(`[x-fetcher] Syndication fetch failed for @${handle}:`, err instanceof Error ? err.message : String(err));
+    return [];
+  }
+}
+
 const RSS_ENDPOINTS = [
   (handle: string) => `https://nitter.unixfox.eu/${handle}/rss`,
   (handle: string) => `https://nitter.cz/${handle}/rss`,
@@ -117,10 +196,20 @@ Deno.serve(async (req: Request) => {
 
   console.log(`[x-fetcher] Fetching tweets for handle @${handle}`);
 
+  // 1. Primary: Try Twitter official Syndication Widget API
+  const syndicationItems = await fetchFromSyndication(handle);
+  if (syndicationItems.length > 0) {
+    return new Response(
+      JSON.stringify({ success: true, data: syndicationItems }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+
+  // 2. Secondary: Fallback to RSS endpoints
   for (const getUrl of RSS_ENDPOINTS) {
     const targetUrl = getUrl(handle);
     try {
-      console.log(`[x-fetcher] Trying endpoint: ${targetUrl}`);
+      console.log(`[x-fetcher] Trying fallback endpoint: ${targetUrl}`);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 6000);
 

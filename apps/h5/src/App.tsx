@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { TABS } from "./constants/tabs";
 import Feed from "./pages/Feed";
 import H5Auth from "./components/H5Auth";
+import LoginModal from "./components/LoginModal";
+import MyMonitors from "./pages/MyMonitors";
 import { supabase } from "./lib/supabase";
 
 function getInitialUserId(): string | null {
@@ -21,36 +23,48 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("all");
   const [targetUserId, setTargetUserId] = useState<string | null>(getInitialUserId);
   const [checkingAuth, setCheckingAuth] = useState(() => !getInitialUserId());
+  const [viewMode, setViewMode] = useState<"feed" | "monitors">("feed");
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [sessionUserId, setSessionUserId] = useState<string | null>(null);
+  const [feedKey, setFeedKey] = useState(0);
 
   useEffect(() => {
-    let ignore = false;
-
-    if (targetUserId) {
-      return;
-    }
-
     supabase.auth.getSession().then(({ data }) => {
-      if (ignore) return;
       if (data.session?.user) {
-        setTargetUserId(data.session.user.id);
+        setSessionUserId(data.session.user.id);
+        if (!targetUserId) {
+          setTargetUserId(data.session.user.id);
+        }
       }
       setCheckingAuth(false);
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (ignore) return;
       if (session?.user) {
-        setTargetUserId(session.user.id);
+        setSessionUserId(session.user.id);
+        if (!targetUserId) {
+          setTargetUserId(session.user.id);
+        }
+      } else {
+        setSessionUserId(null);
       }
     });
 
     return () => {
-      ignore = true;
       authListener.subscription.unsubscribe();
     };
   }, [targetUserId]);
 
+  const isOwnSession = Boolean(sessionUserId && targetUserId === sessionUserId);
   const currentTab = TABS.find((t) => t.key === activeTab) ?? TABS[0];
+
+  const handleSettingsClick = () => {
+    if (isOwnSession) {
+      setViewMode("monitors");
+    } else {
+      setShowLoginModal(true);
+    }
+  };
 
   if (checkingAuth) {
     return (
@@ -66,7 +80,20 @@ export default function App() {
       <H5Auth
         onSuccess={(userId) => {
           setTargetUserId(userId);
+          setSessionUserId(userId);
           window.history.replaceState(null, "", `?u=${userId}`);
+        }}
+      />
+    );
+  }
+
+  // Render MyMonitors full-screen secondary page
+  if (viewMode === "monitors") {
+    return (
+      <MyMonitors
+        onBack={() => {
+          setViewMode("feed");
+          setFeedKey((k) => k + 1);
         }}
       />
     );
@@ -104,9 +131,32 @@ export default function App() {
               </button>
             ))}
           </div>
+
+          {/* 顶栏右侧 ⚙️ 设置/订阅管理按钮 */}
+          <button
+            type="button"
+            onClick={handleSettingsClick}
+            className="w-8 h-8 rounded-full bg-[#E5E5EA] flex items-center justify-center text-sm hover:bg-gray-300 transition flex-shrink-0"
+            title={isOwnSession ? "管理我的订阅" : "登录管理订阅"}
+          >
+            ⚙️
+          </button>
         </div>
       </div>
-      <Feed platform={currentTab.platform} userId={targetUserId} />
+
+      <Feed key={feedKey} platform={currentTab.platform} userId={targetUserId} />
+
+      {/* 匿名模式下点击 ⚙️ 唤起的登录 Modal */}
+      <LoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onSuccess={(userId) => {
+          setSessionUserId(userId);
+          setTargetUserId(userId);
+          window.history.replaceState(null, "", `?u=${userId}`);
+          setViewMode("monitors");
+        }}
+      />
     </div>
   );
 }

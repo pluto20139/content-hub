@@ -339,8 +339,19 @@ Authorization: Bearer <SERVICE_ROLE_KEY>
 | **主机 IP / Host** | `124.222.54.39` | 腾讯云广州/上海区 Linux 生产服务器公网 IP |
 | **SSH 登录用户名** | `root` | 最高管理员权限账号 |
 | **SSH 端口** | `22` | 标准 SSH 服务端口 |
-| **认证方式** | 密钥 / 密码 | `ssh root@124.222.54.39` (建议配合本地 SSH Key 快捷免密连接) |
+| **认证方式** | 密钥 / 密码 | `ssh root@124.222.54.39` (配合私钥 `ssh -i <私钥路径> root@124.222.54.39`) |
 | **服务器操作系统** | Ubuntu / TencentOS Server | 运行 Linux x86_64 架构 |
+
+#### 🔑 SSH 密钥查找与获取路径
+
+1. **本地开发机默认密钥路径 (Mac / Linux)**：
+   - **私钥文件**：`~/.ssh/id_rsa` 或 `~/.ssh/id_ed25519`
+   - **公钥文件**：`~/.ssh/id_rsa.pub` 或 `~/.ssh/id_ed25519.pub`
+   - **SSH 配置文件**：`~/.ssh/config`
+2. **腾讯云控制台密钥获取路径**：
+   - **控制台入口**：[腾讯云控制台 -> 云服务器 CVM -> 密钥对 (Key Pairs)](https://console.cloud.tencent.com/cvm/sshkey)；
+   - **下载与绑定**：如果在腾讯云控制台上创建或绑定过密钥对，公钥会自动写入服务器的 `/root/.ssh/authorized_keys`，创建时下载的 `.pem` 私钥文件（例如 `tencent_key.pem`）保存在您下载此秘钥时的本地电脑目录中；
+   - **连接命令**：`ssh -i /path/to/your_key.pem root@124.222.54.39`。
 
 ### 6.2 服务器项目目录与存储布局
 
